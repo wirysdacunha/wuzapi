@@ -122,7 +122,6 @@ header.scrolled {
     transform: translateY(-9px) rotate(-45deg);
 }
 
-/* Melhorias na navegação */
 nav ul {
     display: flex;
     gap: 1.5rem;
@@ -179,12 +178,8 @@ nav a.btn:hover {
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
 }
 
-/* Melhorias no demo */
 .demo-section {
-    background: linear-gradient(135deg, #f5f7fa 0%, #e5e9f0 50%, #f5f7fa 100%);
-    position: relative;
-    overflow: hidden;
-    box-shadow: inset 0 0 50px rgba(0,0,0,0.03);
+    background-color: #ddd;
 }
 
 .demo-section::before {
@@ -194,7 +189,6 @@ nav a.btn:hover {
     left: 0;
     width: 100%;
     height: 100%;
-    background: url('/images/pattern-dots.svg') repeat;
     opacity: 0.1;
     animation: patternShift 60s linear infinite;
 }
@@ -481,6 +475,9 @@ body.menu-open {
 }
 
 /* Dark mode enhancements */
+body.dark-mode a:visited {
+  color: #f5f5f5;
+}
 body.dark-mode .chat-message.received {
     background-color: #333;
     color: #f5f5f5;
@@ -528,13 +525,11 @@ body.dark-mode .demo-btn.active-btn {
     background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
 }
 
-/* Ajustar mensagens enviadas no modo escuro */
 body.dark-mode .chat-message.sent {
     background-color: var(--light-color);
-    color: #000; /* Mantém o texto preto mesmo em modo escuro */
+    color: #000;
 }
 
-/* Melhor organização dos links do header */
 nav ul {
     display: flex;
     gap: 1.5rem;
@@ -557,7 +552,7 @@ nav a {
     text-align: center;
 }
 
-/* Melhorias para mobile */
+/* Mobile */
 @media (max-width: 768px) {
     .menu-toggle {
         display: flex;
@@ -622,7 +617,6 @@ nav a {
     }
 }
 
-/* Responsividade melhorada */
 @media (max-width: 992px) {
     .phone-mockup {
         max-width: 320px;
@@ -676,7 +670,7 @@ nav a {
     justify-content: center;
     padding-top: 80px;
     background: linear-gradient(rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.9)), 
-                url('https://images.unsplash.com/photo-1573497620053-ea5300f94f21?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080');
+                url('/images/background_image.png');
     background-size: cover;
     background-position: center;
     position: relative;
@@ -988,6 +982,7 @@ nav a {
     border-left: 5px solid #e53e3e;
     margin: 2rem 0;
     transition: var(--transition-normal);
+    margin:auto;
 }
 
 .warning-section:hover {
@@ -1439,13 +1434,24 @@ body.dark-mode .endpoint-card {
 }
 
 body.dark-mode .features,
+body.dark-mode .api-section,
+body.dark-mode .demo-section,
 body.dark-mode .usage-section {
     background-color: #1a1a1a;
 }
 
 body.dark-mode .hero {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding-top: 80px;
     background: linear-gradient(rgba(26, 26, 26, 0.9), rgba(26, 26, 26, 0.9)), 
-                url('https://images.unsplash.com/photo-1573497620053-ea5300f94f21?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080');
+                url('/images/background_image.png');
+    background-size: cover;
+    background-position: center;
+    position: relative;
+    overflow: hidden;
 }
 
 body.dark-mode .section-title h2,

@@ -1,1235 +1,1609 @@
-// Main Application Module
+let baseUrl = window.location.origin;
+let scanned = false;
+let updateAdminTimeout = null;
+let updateUserTimeout = null;
+let updateInterval = 5000;
+let instanceToDelete = null;
+let isAdminLogin = false;
+let currentInstanceData = null;
 
-// Configurações globais
-let appConfig = {
-    debug: false,
-    version: '1.1.0',
-    reconnectAttempts: 0,
-    maxReconnectAttempts: 3,
-    reconnectDelay: 5000, // 5 segundos
-    adminReconnectDelay: 10000, // 10 segundos para admin
-    isReconnecting: false,
-    hasTriedSessionReconnect: false
-};
+document.addEventListener('DOMContentLoaded', function() {
 
-// Estado global da aplicação
-let appState = {
-    statusPollingInterval: null,
-    isPolling: false,
-    lastStatus: null,
-    qrCheckInterval: null,
-    instanceDashboard: null
-};
+  const loginForm = document.getElementById('loginForm');
+  const loginTokenInput = document.getElementById('loginToken');
+  const regularLoginBtn = document.getElementById('regularLoginBtn');
+  const adminLoginBtn = document.getElementById('loginAsAdminBtn');
+ 
+  hideWidgets();
 
-/**
- * Função para sincronizar o token de autenticação entre diferentes locais de armazenamento
- * Isso evita problemas de autenticação quando o token está presente em um local mas não em outro
- */
-function syncAuthToken() {
-    console.log("[AUTH] Sincronizando token de autenticação entre fontes...");
-    
-    // Verificar token na URL
-    const urlParams = new URLSearchParams(window.location.search);
-    const urlToken = urlParams.get('token');
-    
-    // Verificar token no localStorage
-    const localStorageToken = localStorage.getItem('wuzapiToken');
-    
-    // Verificar token na window
-    const windowToken = window.userToken;
-    
-    // Verificar token no estado de autenticação
-    const authStateToken = window.authState?.userToken;
-    
-    // Logs para diagnóstico
-    console.log(`[AUTH] Token na URL: ${urlToken ? 'Sim' : 'Não'}`);
-    console.log(`[AUTH] Token no localStorage: ${localStorageToken ? 'Sim' : 'Não'}`);
-    console.log(`[AUTH] Token em window.userToken: ${windowToken ? 'Sim' : 'Não'}`);
-    console.log(`[AUTH] Token em authState: ${authStateToken ? 'Sim' : 'Não'}`);
-    
-    // Determinar o token mais confiável, na ordem: URL > localStorage > window > authState
-    let finalToken = urlToken || localStorageToken || windowToken || authStateToken || '';
-    
-    if (!finalToken) {
-        console.warn("[AUTH] Atenção: Nenhum token encontrado em nenhuma fonte");
-        return false;
+  $('#deleteInstanceModal').modal({
+    closable: true,
+    onDeny: function() {
+      instanceToDelete = null;
     }
-    
-    console.log(`[AUTH] Token final selecionado: ${finalToken.substring(0, 10)}...`);
-    
-    // Atualizar todas as fontes com o token final
-    if (finalToken) {
-        // Atualizar window.userToken
-        window.userToken = finalToken;
-        
-        // Atualizar localStorage
-        localStorage.setItem('wuzapiToken', finalToken);
-        
-        // Atualizar authState se existir
-        if (window.authState) {
-            window.authState.userToken = finalToken;
-            window.authState.isAuthenticated = true;
-        } else {
-            // Criar authState se não existir
-            window.authState = {
-                userToken: finalToken,
-                isAuthenticated: true,
-                isAdmin: false,
-                userId: null,
-                userName: ''
-            };
-        }
-        
-        // Atualizar URL se não tiver o token
-        if (urlToken !== finalToken) {
-            const newUrl = new URL(window.location.href);
-            newUrl.searchParams.set('token', finalToken);
-            window.history.replaceState({}, '', newUrl.toString());
-            console.log("[AUTH] Token adicionado à URL");
-        }
-        
-        console.log("[AUTH] Token sincronizado com sucesso em todas as fontes");
-        return true;
-    }
-    
-    return false;
-}
+  });
 
-/**
- * Inicializar a interface do usuário
- */
-function initializeInterface() {
-    // Verificar autenticação primeiro
-    if (!authState.isAuthenticated) {
+  // Initialize dropdowns for webhook events
+  $('#webhookEvents').dropdown({
+    onChange: function(value, text, $selectedItem) {
+      if (value.includes('All')) {
+        // If "All" is selected, clear selection and select only "All"
+        $('#webhookEvents').dropdown('clear');
+        $('#webhookEvents').dropdown('set selected', 'All');
+      }
+    }
+  });
+
+  $('#webhookEventsInstance').dropdown({
+    onChange: function(value, text, $selectedItem) {
+      if (value.includes('All')) {
+        // If "All" is selected, clear selection and select only "All"
+        $('#webhookEventsInstance').dropdown('clear');
+        $('#webhookEventsInstance').dropdown('set selected', 'All');
+      }
+    }
+  });
+
+  // Initialize S3 media delivery dropdown
+  $('#s3MediaDelivery').dropdown();
+  $('#addInstanceS3MediaDelivery').dropdown();
+
+  // Initialize proxy enabled checkbox with onChange handler
+  $('#proxyEnabledToggle').checkbox({
+    onChange: function() {
+      const enabled = $('#proxyEnabled').is(':checked');
+      if (enabled) {
+        $('#proxyUrlField').addClass('show');
+      } else {
+        $('#proxyUrlField').removeClass('show');
+      }
+    }
+  });
+
+  // Initialize add instance proxy toggle
+  $('#addInstanceProxyToggle').checkbox({
+    onChange: function() {
+      const enabled = $('input[name="proxy_enabled"]').is(':checked');
+      if (enabled) {
+        $('#addInstanceProxyUrlField').show();
+      } else {
+        $('#addInstanceProxyUrlField').hide();
+        $('input[name="proxy_url"]').val('');
+      }
+    }
+  });
+
+  // Initialize add instance S3 toggle
+  $('#addInstanceS3Toggle').checkbox({
+    onChange: function() {
+      const enabled = $('input[name="s3_enabled"]').is(':checked');
+      if (enabled) {
+        $('#addInstanceS3Fields').show();
+      } else {
+        $('#addInstanceS3Fields').hide();
+        // Clear S3 fields when disabled
+        $('input[name="s3_endpoint"]').val('');
+        $('input[name="s3_access_key"]').val('');
+        $('input[name="s3_secret_key"]').val('');
+        $('input[name="s3_bucket"]').val('');
+        $('input[name="s3_region"]').val('');
+        $('input[name="s3_public_url"]').val('');
+        $('input[name="s3_retention_days"]').val('30');
+        $('input[name="s3_path_style"]').prop('checked', false);
+        $('#addInstanceS3MediaDelivery').dropdown('set selected', 'base64');
+      }
+    }
+  });
+
+  // Handle admin login button click
+  adminLoginBtn.addEventListener('click', function() {
+    isAdminLogin = true;
+    loginForm.classList.add('loading');
+    
+    // Change button appearance to show admin mode
+    adminLoginBtn.classList.add('teal');
+    adminLoginBtn.innerHTML = '<i class="shield alternate icon"></i> Admin Mode';
+    $('#loginToken').val('').focus();
+    
+    // Show admin-specific instructions
+    $('.ui.info.message').html(`
+        <div class="header mb-4">
+            <i class="user shield icon"></i>
+            Admin Login
+        </div>
+        <p>Please enter your admin credentials:</p>
+        <ul>
+            <li>Use your admin token in the field above</li>
+        </ul>
+    `);
+    
+    // Focus on token input
+    loginTokenInput.focus();
+    loginForm.classList.remove('loading');
+  });
+
+  // Handle form submission
+  loginForm.addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const token = loginTokenInput.value.trim();
+    
+    if (!token) {
+        showError('Please enter your access token');
+        $('#loginToken').focus();
         return;
     }
-
-    // Inicializar tabs e outras funcionalidades do Bootstrap
-    document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => {
-        new bootstrap.Tooltip(el);
-    });
     
-    // Verificar tipo de usuário
-    const isAdmin = authState?.isAdmin === true;
-    
-    // Configurações específicas por tipo de usuário
-    if (isAdmin) {
-        // Inicializar interface para admin
-        initAdminInterface();
-    } else {
-        // Inicializar interface para usuário normal
-        initUserInterface();
-    }
-    
-    // Registrar eventos comuns
-    registerCommonEvents();
-    
-    // Aplicar restrições de interface
-    applyUserInterfaceRestrictions();
-    
-    // Mostrar toast de boas vindas
+    loginForm.classList.add('loading');
+     
     setTimeout(() => {
-        showToast(`Bem-vindo ao WuzAPI Manager, ${authState.userName || 'Usuário'}!`, 'primary');
+        if (isAdminLogin) {
+            handleAdminLogin(token,true);
+        } else {
+            handleRegularLogin(token,true);
+        }
+        
+        loginForm.classList.remove('loading');
     }, 1000);
-    
-    // Restaurar estado da instância após recarregar a página
-    restoreInstanceState();
-    
-    // Verificar a visibilidade dos botões de ação
-    updateActionButtons();
-}
+  });
 
-/**
- * Inicializar interface específica para administradores
- */
-function initAdminInterface() {
-    // Mostrar elementos específicos de admin
-    document.querySelectorAll('.admin-only').forEach(el => {
-        el.style.display = '';
-    });
-    
-    // Mostrar também elementos específicos de usuário para permitir gerenciamento de instâncias
-    document.querySelectorAll('.user-only').forEach(el => {
-        el.style.display = '';
-    });
-    
-    // Mostrar o badge de admin
-    const adminBadge = document.getElementById('adminBadge');
-    if (adminBadge) {
-        adminBadge.classList.remove('d-none');
-    }
-    
-    // Inicializar o painel de administração
-    initAdminPanel();
-    
-    // Garantir que a sidebar de instâncias seja visível
-    const instanceSidebar = document.querySelector('.col-md-3.col-lg-2');
-    if (instanceSidebar) {
-        instanceSidebar.classList.remove('d-none');
-    }
-    
-    // Expandir o conteúdo principal
-    const mainContent = document.querySelector('.col-md-9.col-lg-10');
-    if (mainContent) {
-        mainContent.classList.remove('col-12');
-        mainContent.classList.add('col-md-9', 'col-lg-10');
-    }
-    
-    addLog('Painel de administração ativado', 'info');
-}
+  $('#menulogout').on('click',function(e) {
+    $('.adminlogin').hide();
+    e.preventDefault();
+    removeLocalStorageItem('isAdmin');
+    removeLocalStorageItem('admintoken');
+    removeLocalStorageItem('token');
+    removeLocalStorageItem('currentInstance');
+    currentInstanceData = null; // Clear instance data
+    window.location.reload();
+    return false;
+  });
 
-/**
- * Inicializar interface específica para usuários normais
- */
-function initUserInterface() {
-    // Ocultar elementos específicos de admin
-    document.querySelectorAll('.admin-only').forEach(el => {
-        el.style.display = 'none';
-    });
-    
-    // Mostrar elementos específicos de usuário
-    document.querySelectorAll('.user-only').forEach(el => {
-        el.style.display = '';
-    });
-    
-    // Esconder o badge de admin
-    const adminBadge = document.getElementById('adminBadge');
-    if (adminBadge) {
-        adminBadge.classList.add('d-none');
-    }
-    
-    // Ocultar a sidebar de instâncias (usuário normal tem apenas uma instância)
-    const instanceSidebar = document.querySelector('.col-md-3.col-lg-2');
-    if (instanceSidebar) {
-        instanceSidebar.classList.add('d-none');
-    }
-    
-    // Expandir o conteúdo principal
-    const mainContent = document.querySelector('.col-md-9.col-lg-10');
-    if (mainContent) {
-        mainContent.classList.remove('col-md-9', 'col-lg-10');
-        mainContent.classList.add('col-12');
-    }
-    
-    // Verificar se temos um nome de usuário/instância para exibir
-    const currentInstanceName = document.getElementById('currentInstanceName');
-    if (currentInstanceName && authState.userName) {
-        currentInstanceName.textContent = authState.userName;
-    }
-    
-    addLog('Interface de usuário inicializada', 'info');
-}
-
-/**
- * Registrar eventos comuns para ambos os tipos de usuário
- */
-function registerCommonEvents() {
-    // Alternar entre QR e pareamento por telefone
-    const toggleConnectionMethodBtn = document.getElementById('toggleConnectionMethodBtn');
-    if (toggleConnectionMethodBtn) {
-        toggleConnectionMethodBtn.addEventListener('click', toggleConnectionMethod);
-    }
-    
-    // Registrar evento para o botão de limpar logs
-    const clearLogsBtn = document.getElementById('clearLogsBtn');
-    if (clearLogsBtn) {
-        clearLogsBtn.addEventListener('click', () => {
-            const messageLog = document.getElementById('messageLog');
-            if (messageLog) {
-                messageLog.innerHTML = '<div class="log-entry log-info">Logs limpos.</div>';
-            }
-        });
-    }
-    
-    // Registrar evento para exportar logs
-    const exportLogsBtn = document.getElementById('exportLogsBtn');
-    if (exportLogsBtn) {
-        exportLogsBtn.addEventListener('click', exportLogs);
-    }
-    
-    // Registrar eventos para botões de instância
-    registerInstanceEvents();
-    
-    // Adicionar evento para salvar estado antes de recarregar
-    window.addEventListener('beforeunload', () => {
-        if (instancesState.currentInstance) {
-            localStorage.setItem('currentInstance', instancesState.currentInstance);
-            localStorage.setItem('instanceStatus', JSON.stringify({
-                connected: true,
-                loggedIn: true,
-                lastCheck: Date.now()
-            }));
-        }
-    });
-}
-
-/**
- * Registrar eventos para botões de controle de instância
- */
-function registerInstanceEvents() {
-    // Botões de ação rápida
-    const quickConnectBtn = document.getElementById('quickConnectBtn');
-    if (quickConnectBtn) {
-        quickConnectBtn.addEventListener('click', connect);
-    }
-    
-    const quickDisconnectBtn = document.getElementById('quickDisconnectBtn');
-    if (quickDisconnectBtn) {
-        quickDisconnectBtn.addEventListener('click', disconnect);
-    }
-    
-    const quickLogoutBtn = document.getElementById('quickLogoutBtn');
-    if (quickLogoutBtn) {
-        quickLogoutBtn.addEventListener('click', () => {
-            if (confirm('Tem certeza que deseja fazer logout da instância do WhatsApp?')) {
-                logout();
-            }
-        });
-    }
-    
-    const quickQrBtn = document.getElementById('quickQrBtn');
-    if (quickQrBtn) {
-        quickQrBtn.addEventListener('click', getQrCode);
-    }
-    
-    // Refresh status
-    const refreshStatus = document.getElementById('refreshStatus');
-    if (refreshStatus) {
-        refreshStatus.addEventListener('click', () => {
-            if (instancesState && instancesState.currentInstance) {
-                checkStatus(instancesState.currentInstance);
-            } else {
-                showToast('Selecione uma instância primeiro', 'warning');
-            }
-        });
-    }
-}
-
-/**
- * Restaurar estado da instância após recarregar a página
- */
-function restoreInstanceState() {
-    // Verificar se há instâncias carregadas
-    if (!instancesState.instances || instancesState.instances.length === 0) {
-        return;
-    }
-    
-    // Verificar se há dados salvos
-    const savedInstanceId = localStorage.getItem('currentInstance');
-    const savedStatus = localStorage.getItem('instanceStatus');
-    
-    if (savedInstanceId && instancesState.instances.some(i => i.id === savedInstanceId)) {
-        instancesState.currentInstance = savedInstanceId;
-        
-        if (savedStatus) {
-            try {
-                const status = JSON.parse(savedStatus);
-                const lastCheck = status.lastCheck || 0;
-                const now = Date.now();
-                
-                // Se checou há menos de 5 minutos, confiar no estado salvo
-                if (now - lastCheck < 300000) {
-                    const instance = instancesState.instances.find(i => i.id === savedInstanceId);
-                    if (instance) {
-                        instance.connected = status.connected ? 1 : 0;
-                        instance.isConnected = status.connected;
-                        instance.loggedIn = status.loggedIn;
-                        instance.isLoggedIn = status.loggedIn;
-                        
-                        // Atualizar também o telefone se disponível
-                        if (status.phone) {
-                            instance.phone = status.phone;
-                        }
-                        
-                        // Atualizar UI para refletir o estado restaurado
-                        updateStatusUI(status.connected, status.loggedIn);
-                        
-                        // Atualizar botões baseados no estado
-                        if (typeof updateActionButtons === 'function') {
-                            updateActionButtons();
-                        }
-                    }
+  document.getElementById('pairphoneinput').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+      const phone = pairPhoneInput.value.trim();
+      if (phone) {
+        connect().then((data) => {
+          if(data.success==true) {
+            pairPhone(phone)
+              .then((data) => {
+                document.getElementById('pairHelp').classList.add('hidden');;
+                // Success case
+                if (data.success && data.data && data.data.LinkingCode) {
+                  document.getElementById('pairInfo').innerHTML = `Your link code is: ${data.data.LinkingCode}`;
+                  scanInterval = setInterval(checkStatus, 1000);
+                } else {
+                  document.getElementById('pairInfo').innerHTML = "Problem getting pairing code";
                 }
-            } catch (error) {
-                console.error('Erro ao restaurar estado da instância:', error);
-            }
-        }
-        
-        // Selecionar instância e verificar status atualizado
-        if (typeof selectInstance === 'function') {
-            selectInstance(savedInstanceId, false);
-            
-            // Verificar status com um pequeno delay para evitar múltiplas chamadas
-            setTimeout(() => {
-                if (typeof checkStatus === 'function') {
-                    checkStatus(savedInstanceId);
-                }
-            }, 1000);
-        }
-    } else if (instancesState.instances.length > 0) {
-        // Se não há instância salva ou a salva não existe mais, usar a primeira
-        if (typeof selectInstance === 'function') {
-            selectInstance(instancesState.instances[0].id, false);
-            
-            // Verificar status com delay
-            setTimeout(() => {
-                if (typeof checkStatus === 'function') {
-                    checkStatus(instancesState.instances[0].id);
-                }
-            }, 1000);
-        }
+              })
+              .catch((error) => {
+                // Error case
+                document.getElementById('pairInfo').innerHTML = "Problem getting pairing code";
+                console.error('Pairing error:', error);
+              });
+          }
+      });
+      }
     }
-}
+  });
 
-/**
- * Inicializar o painel de administração
- */
-function initAdminPanel() {
-    // Verificar se o usuário é admin
-    if (authState?.isAdmin) {
-        // Mostrar o painel de administração
-        const adminPanel = document.getElementById('adminDashboardPanel');
-        if (adminPanel) {
-            adminPanel.style.display = 'block';
-            addLog('Painel de administração ativado', 'info');
-            
-            // Carregar dados iniciais
-            loadAdminStats();
-            
-            // Configurar o botão de atualização
-            const refreshAdminStats = document.getElementById('refreshAdminStats');
-            if (refreshAdminStats) {
-                refreshAdminStats.addEventListener('click', loadAdminStats);
-            }
-            
-            // Configurar o botão de verificação do sistema
-            const checkSystemBtn = document.getElementById('checkSystemBtn');
-            if (checkSystemBtn) {
-                checkSystemBtn.addEventListener('click', checkSystemStatus);
-            }
-            
-            // Configurar envio de mensagem de teste
-            const adminSendTestBtn = document.getElementById('adminSendTestBtn');
-            if (adminSendTestBtn) {
-                adminSendTestBtn.addEventListener('click', sendTestMessage);
-            }
-        }
-    } else {
-        // Esconder o painel de administração
-        const adminPanel = document.getElementById('adminDashboardPanel');
-        if (adminPanel) {
-            adminPanel.style.display = 'none';
-        }
+  document.getElementById('userinfoinput').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+      doUserInfo();
     }
-}
+  });
+ 
+  document.getElementById('useravatarinput').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+      doUserAvatar();
+    }
+  });
 
-/**
- * Iniciar verificação periódica do status da instância atual
- */
-function startStatusPolling() {
-    // Limpar intervalo existente para evitar múltiplas verificações
-    stopStatusPolling();
-    
-    // Verificar se já está em polling
-    if (appState.isPolling) {
-        console.log("[STATUS] Polling já está ativo, ignorando solicitação duplicada");
-        return;
-    }
-    
-    // Iniciar novo intervalo apenas se houver uma instância selecionada
-    if (instancesState?.currentInstance) {
-        const pollingDelay = authState?.isAdmin ? appConfig.adminReconnectDelay : 5000;
-        
-        console.log(`[STATUS] Iniciando polling com intervalo de ${pollingDelay}ms para instância ${instancesState.currentInstance}`);
-        appState.isPolling = true;
-        
-        appState.statusPollingInterval = setInterval(async () => {
-            try {
-                // Verificar se ainda estamos autenticados
-                if (!authState.isAuthenticated) {
-                    console.log("[STATUS] Usuário não autenticado, parando polling");
-                    stopStatusPolling();
-                    return;
-                }
+  document.getElementById('userInfo').addEventListener('click', function() {
+    document.getElementById('userInfoContainer').innerHTML='';
+    document.getElementById("userInfoContainer").classList.add('hidden');
+    $('#modalUserInfo').modal({onApprove: function() {
+      doUserInfo();
+      return false;
+    }}).modal('show');
+  });
 
-                // Verificar se a polling ainda é relevante
-                if (!instancesState?.currentInstance) {
-                    console.log("[STATUS] Nenhuma instância selecionada, parando polling");
-                    stopStatusPolling();
-                    return;
-                }
-                
-                // Verificar a instância atual
-                console.log(`[STATUS] Verificando status da instância ${instancesState.currentInstance}`);
-                const status = await checkStatusSilently(instancesState.currentInstance);
-                
-                // Verificar se ainda estamos autenticados após a verificação
-                if (!authState.isAuthenticated) {
-                    console.log("[STATUS] Autenticação perdida após verificação, parando polling");
-                    stopStatusPolling();
-                    return;
-                }
-                
-                // Se a resposta foi null (erro ou fallback), não tentamos reconectar
-                if (!status) return;
-                
-                // Se a instância retornou noSession e for admin, tentar reconectar uma vez
-                if (status.needsReconnect && authState.isAdmin) {
-                    if (!appConfig.isReconnecting && !appConfig.hasTriedSessionReconnect) {
-                        appConfig.isReconnecting = true;
-                        appConfig.hasTriedSessionReconnect = true;
-                        
-                        addLog('Detectado problema de sessão. Tentando reconectar...', 'warning');
-                        
-                        if (typeof connect === 'function') {
-                            const connectResult = await connect();
-                            if (connectResult) {
-                                addLog('Sessão da instância reiniciada com sucesso', 'success');
-                            }
-                        }
-                        
-                        // Independente do resultado, esperar um pouco antes de continuar o polling
-                        setTimeout(() => {
-                            appConfig.isReconnecting = false;
-                        }, 5000);
-                        
-                        return;
-                    }
-                }
-                
-                // Se a instância estiver desconectada e for admin, tentar reconectar
-                if (status && !status.connected && authState.isAdmin && !appConfig.isReconnecting) {
-                    if (appConfig.reconnectAttempts < appConfig.maxReconnectAttempts) {
-                        appConfig.isReconnecting = true;
-                        appConfig.reconnectAttempts++;
-                        
-                        addLog(`Tentativa de reconexão ${appConfig.reconnectAttempts}/${appConfig.maxReconnectAttempts}...`, 'info');
-                        
-                        if (typeof connect === 'function') {
-                            await connect();
-                        }
-                        
-                        // Aguardar um tempo antes de verificar novamente
-                        setTimeout(async () => {
-                            const newStatus = await checkStatusSilently(instancesState.currentInstance);
-                            if (newStatus && newStatus.connected) {
-                                appConfig.reconnectAttempts = 0;
-                                appConfig.hasTriedSessionReconnect = false;
-                                addLog('Reconexão bem sucedida', 'success');
-                            }
-                            appConfig.isReconnecting = false;
-                        }, 5000);
-                    } else {
-                        addLog('Número máximo de tentativas de reconexão atingido', 'warning');
-                        appConfig.reconnectAttempts = 0;
-                        appConfig.hasTriedSessionReconnect = false;
-                        // Não paramos o polling para que seja possível tentar novamente mais tarde
-                    }
-                } else if (status && status.connected) {
-                    // Resetar contador de tentativas se estiver conectado
-                    appConfig.reconnectAttempts = 0;
-                    appConfig.hasTriedSessionReconnect = false;
-                }
-            } catch (error) {
-                console.error('[STATUS] Erro no polling de status:', error);
-            }
-        }, pollingDelay);
-        
-        addLog('Verificação automática de status iniciada', 'info');
-    } else {
-        console.log("[STATUS] Nenhuma instância selecionada, ignorando solicitação de polling");
-    }
-}
+  document.getElementById('userAvatar').addEventListener('click', function() {
+    document.getElementById('userAvatarContainer').innerHTML='';
+    document.getElementById("userAvatarContainer").classList.add('hidden');
+    $('#modalUserAvatar').modal({onApprove: function() {
+      doUserAvatar();
+      return false;
+    }}).modal('show');
+  });
 
-/**
- * Parar verificação periódica de status
- */
-function stopStatusPolling() {
-    if (appState.statusPollingInterval) {
-        console.log("[STATUS] Parando polling de status");
-        clearInterval(appState.statusPollingInterval);
-        appState.statusPollingInterval = null;
-        appState.isPolling = false;
-        appConfig.isReconnecting = false;
-    }
-    
-    // Limpar também intervalos de verificação de QR
-    if (instancesState && instancesState.qrCheckInterval) {
-        clearInterval(instancesState.qrCheckInterval);
-        instancesState.qrCheckInterval = null;
-    }
-}
+  document.getElementById('sendTextMessage').addEventListener('click', function() {
+    document.getElementById('sendMessageContainer').innerHTML='';
+    document.getElementById("sendMessageContainer").classList.add('hidden');
+    $('#modalSendTextMessage').modal({onApprove: function() {
+      sendTextMessage().then((result)=>{
+        document.getElementById("sendMessageContainer").classList.remove('hidden');
+        if(result.success===true) {
+           document.getElementById('sendMessageContainer').innerHTML=`Message sent successfully. Id: ${result.data.Id}`
+        } else {
+           document.getElementById('sendMessageContainer').innerHTML=`Problem sending message: ${result.error}`
+        }
+      });
+      return false;
+    }}).modal('show');
+  });
+ 
+  document.getElementById('deleteMessage').addEventListener('click', function() {
+    document.getElementById('deleteMessageContainer').innerHTML='';
+    document.getElementById("deleteMessageContainer").classList.add('hidden');
+    $('#modalDeleteMessage').modal({onApprove: function() {
+      deleteMessage().then((result)=>{
+        console.log(result);
+        document.getElementById("deleteMessageContainer").classList.remove('hidden');
+        if(result.success===true) {
+           document.getElementById('deleteMessageContainer').innerHTML=`Message deleted successfully.`
+        } else {
+           document.getElementById('deleteMessageContainer').innerHTML=`Problem deleting message: ${result.error}`
+        }
+      });
+      return false;
+    }}).modal('show');
+  });
+  
+  document.getElementById('userContacts').addEventListener('click', function() {
+    getContacts();
+  });
 
-/**
- * Verificar status silenciosamente (sem mostrar loading)
- */
-async function checkStatusSilently(instanceId) {
-    if (!instanceId) return null;
-    
-    try {
-        // Usar o ID fornecido ou o ID da instância atual
-        const response = await makeApiCall(`/instances/${instanceId}/status`, 'GET');
-        
-        if (response.success) {
-            // Processar resposta
-            let isConnected = false;
-            let isLoggedIn = false;
-            let phone = '';
-            
-            // Processar formato da resposta
-            if (response.data.hasOwnProperty('Connected')) {
-                isConnected = response.data.Connected === true;
-                isLoggedIn = response.data.LoggedIn === true;
-                phone = response.data.phone || '';
-            } else if (response.data.hasOwnProperty('connected')) {
-                isConnected = response.data.connected === true;
-                isLoggedIn = response.data.loggedIn === true;
-                phone = response.data.phone || '';
-            }
-            
-            // Verificar se a instância precisa de reconexão por problemas de sessão
-            const needsReconnect = response.data.noSession || false;
-            
-            // Ignorar resposta de fallback para não atualizar a UI com dados possivelmente desatualizados
-            // Mas retornar status para processamento pelo polling
-            if (response.data.isOfflineFallback) {
-                return {
-                    connected: false,
-                    loggedIn: false,
-                    needsReconnect: needsReconnect
-                };
-            }
-            
-            // Atualizar UI apenas se for a instância atual
-            if (instanceId === instancesState.currentInstance) {
-                updateStatusUI(isConnected, isLoggedIn);
-                
-                // Se estiver aguardando QR e ainda não estiver conectado,
-                // tentar obter QR code novamente
-                const qrCodeSection = document.getElementById('qrCodeSection');
-                if (isConnected && !isLoggedIn && qrCodeSection && 
-                    qrCodeSection.style.display !== 'none' && 
-                    !document.querySelector('#qrCode img')) {
-                    getQrCode();
-                }
-            }
-            
-            // Atualizar dados na lista de instâncias
-            const instance = instancesState.instances.find(i => i.id === instanceId);
-            if (instance) {
-                // Atualizar status
-                instance.connected = isConnected ? 1 : 0;
-                instance.isConnected = isConnected;
-                instance.loggedIn = isLoggedIn;
-                instance.isLoggedIn = isLoggedIn;
-                
-                // Atualizar telefone se disponível
-                if (phone) {
-                    instance.phone = phone;
-                }
-                
-                // Atualizar lista visual
-                if (typeof renderInstanceList === 'function') {
-                    renderInstanceList();
-                }
-                if (typeof renderMobileInstanceList === 'function') {
-                    renderMobileInstanceList();
-                }
-            }
-            
-            return {
-                connected: isConnected,
-                loggedIn: isLoggedIn,
-                phone: phone,
-                needsReconnect: needsReconnect
-            };
-        }
-    } catch (error) {
-        console.error(`Erro na verificação silenciosa de status: ${error.message}`);
-    }
-    
-    return null;
-}
+  // S3 Configuration
+  document.getElementById('s3Config').addEventListener('click', function() {
+    $('#modalS3Config').modal({
+      onApprove: function() {
+        saveS3Config();
+        return false;
+      }
+    }).modal('show');
+    loadS3Config();
+  });
 
-/**
- * Atualizar a UI de status com base nos estados de conexão e login
- * @param {boolean|number} connected - Estado de conexão
- * @param {boolean} loggedIn - Estado de login
- */
-function updateStatusUI(connected, loggedIn) {
-    // Converter para booleano caso seja um número
-    const isConnected = connected === 1 || connected === true;
-    
-    // Indicadores de status
-    const statusIndicator = document.getElementById('statusIndicator');
-    const quickStatusIndicator = document.getElementById('quickStatusIndicator');
-    const statusText = document.getElementById('statusText');
-    const statusTextMobile = document.getElementById('statusTextMobile');
-    const instanceStatus = document.getElementById('instanceStatus');
-    
-    // Atualizar todos os elementos de status
-    if (statusIndicator) {
-        statusIndicator.className = `status-indicator ${isConnected ? (loggedIn ? 'status-connected' : 'status-waiting') : 'status-disconnected'}`;
-    }
-    
-    if (quickStatusIndicator) {
-        quickStatusIndicator.className = `status-indicator ${isConnected ? (loggedIn ? 'status-connected' : 'status-waiting') : 'status-disconnected'}`;
-    }
-    
-    if (statusText) {
-        statusText.textContent = isConnected ? (loggedIn ? 'Conectado' : 'Aguardando') : 'Desconectado';
-    }
-    
-    if (statusTextMobile) {
-        statusTextMobile.textContent = isConnected ? (loggedIn ? 'Conectado' : 'Aguardando') : 'Desconectado';
-    }
-    
-    if (instanceStatus) {
-        instanceStatus.className = `badge ${isConnected ? (loggedIn ? 'bg-success' : 'bg-warning') : 'bg-danger'}`;
-        instanceStatus.textContent = isConnected ? (loggedIn ? 'Conectado' : 'Aguardando QR') : 'Desconectado';
-    }
-    
-    // Atualizar visibilidade dos botões de ação
-    const actionButtons = document.querySelectorAll('.action-btn');
-    
-    actionButtons.forEach(button => {
-        const condition = button.getAttribute('data-condition');
-        
-        if (!condition) return;
-        
-        // Definir visibilidade com base na condição
-        switch (condition) {
-            case 'disconnected':
-                // Mostrar apenas se desconectado
-                button.style.display = !isConnected ? '' : 'none';
-                break;
-                
-            case 'connected':
-                // Mostrar se conectado (com ou sem login)
-                button.style.display = isConnected ? '' : 'none';
-                break;
-                
-            case 'logged-in':
-                // Mostrar apenas se conectado E logado
-                button.style.display = isConnected && loggedIn ? '' : 'none';
-                break;
-                
-            case 'waiting-qr':
-                // Mostrar se conectado mas não logado (esperando QR)
-                button.style.display = isConnected && !loggedIn ? '' : 'none';
-                break;
-        }
-    });
-}
+  // Proxy Configuration
+  document.getElementById('proxyConfig').addEventListener('click', function() {
+    $('#modalProxyConfig').modal({
+      onApprove: function() {
+        saveProxyConfig();
+        return false;
+      }
+    }).modal('show');
+    loadProxyConfig();
+  });
 
-/**
- * Alternar entre QR e pareamento por telefone
- */
-function toggleConnectionMethod() {
-    const qrSection = document.getElementById('qrCodeSection');
-    const pairPhoneSection = document.getElementById('pairPhoneSection');
-    
-    if (!qrSection || !pairPhoneSection) return;
-    
-    if (qrSection.style.display === 'none') {
-        // Mostrar QR, esconder pareamento por telefone
-        qrSection.style.display = 'block';
-        pairPhoneSection.style.display = 'none';
-        addLog('Método alterado para QR Code', 'info');
-    } else {
-        // Mostrar pareamento por telefone, esconder QR
-        qrSection.style.display = 'none';
-        pairPhoneSection.style.display = 'block';
-        addLog('Método alterado para pareamento por telefone', 'info');
-        
-        // Esconder container de código caso esteja visível
-        const pairCodeContainer = document.getElementById('pairCodeContainer');
-        if (pairCodeContainer) {
-            pairCodeContainer.classList.add('d-none');
-        }
-    }
-}
+  // Webhook Configuration
+  document.getElementById('webhookConfig').addEventListener('click', function() {
+    webhookModal();
+  });
 
-/**
- * Atualizar a visibilidade dos botões de ação com base no status da instância
- */
-function updateActionButtons() {
-    // Verificar se temos uma instância selecionada
-    if (!instancesState || !instancesState.currentInstance || !instancesState.instances || instancesState.instances.length === 0) {
-        return;
-    }
-    
-    const instance = instancesState.instances.find(i => i.id == instancesState.currentInstance);
-    if (!instance) return;
-    
-    // Status da instância
-    const connected = instance.connected === true || instance.Connected === true;
-    const loggedIn = instance.loggedIn === true || instance.LoggedIn === true;
-    
-    // Verificar todos os botões de ação
-    document.querySelectorAll('.action-btn').forEach(btn => {
-        const condition = btn.getAttribute('data-condition');
-        
-        if (!condition) return;
-        
-        // Analisar condição do botão
-        switch (condition) {
-            case 'connected':
-                btn.style.display = connected ? '' : 'none';
-                break;
-            case 'disconnected':
-                btn.style.display = !connected ? '' : 'none';
-                break;
-            case 'logged-in':
-                btn.style.display = (connected && loggedIn) ? '' : 'none';
-                break;
-            case 'not-logged-in':
-                btn.style.display = (connected && !loggedIn) ? '' : 'none';
-                break;
-            case 'waiting-qr':
-                btn.style.display = (connected && !loggedIn) ? '' : 'none';
-                break;
-            default:
-                btn.style.display = '';
-                break;
-        }
-    });
-    
-    // Atualizar botões rápidos também
-    const quickConnectBtn = document.getElementById('quickConnectBtn');
-    const quickDisconnectBtn = document.getElementById('quickDisconnectBtn');
-    const quickLogoutBtn = document.getElementById('quickLogoutBtn');
-    const quickQrBtn = document.getElementById('quickQrBtn');
-    
-    if (quickConnectBtn) quickConnectBtn.style.display = !connected ? '' : 'none';
-    if (quickDisconnectBtn) quickDisconnectBtn.style.display = connected ? '' : 'none';
-    if (quickLogoutBtn) quickLogoutBtn.style.display = (connected && loggedIn) ? '' : 'none';
-    if (quickQrBtn) quickQrBtn.style.display = (connected && !loggedIn) ? '' : 'none';
-    
-    // Garantir que todos os botões de funcionalidade estejam visíveis quando apropriado
-    // Independente do tipo de usuário
-    
-    // Garantir que botões de webhook estejam visíveis
-    const saveWebhookBtn = document.getElementById('saveWebhookBtn');
-    if (saveWebhookBtn) {
-        saveWebhookBtn.style.display = '';
-    }
-    
-    // Garantir que os botões de mensagem de teste estejam visíveis quando conectado
-    const sendTestMsgBtn = document.getElementById('sendTestMsgBtn');
-    if (sendTestMsgBtn) {
-        sendTestMsgBtn.style.display = (connected && loggedIn) ? '' : 'none';
-    }
-    
-    // Mostrar seção de QR Code quando apropriado
-    const qrCodeSection = document.getElementById('qrCodeSection');
-    if (qrCodeSection) {
-        qrCodeSection.style.display = (connected && !loggedIn) ? '' : 'none';
-    }
-    
-    // Ativar botão de obter QR Code
-    const getQrBtn = document.getElementById('getQrBtn');
-    if (getQrBtn) {
-        getQrBtn.style.display = (connected && !loggedIn) ? '' : 'none';
-    }
-}
+  // S3 Test Connection
+  document.getElementById('testS3Connection').addEventListener('click', function() {
+    testS3Connection();
+  });
 
-// Inicialização principal da aplicação
-document.addEventListener('DOMContentLoaded', async () => {
-    console.log("[DEBUG] Inicializando aplicação...");
-    
-    // Verificar se a aplicação já foi inicializada para evitar múltiplas inicializações
-    if (window.appInitialized) {
-        console.log("[DEBUG] Aplicação já inicializada, ignorando solicitação duplicada");
-        return;
+  // S3 Delete Configuration
+  document.getElementById('deleteS3Config').addEventListener('click', function() {
+    deleteS3Config();
+  });
+
+  // Proxy checkbox toggle is now initialized in DOMContentLoaded
+
+  $('#addInstanceButton').click(function() {
+    $('#addInstanceModal').modal({
+      onApprove: function(e,pp) {
+         $('#addInstanceForm').submit();
+         return false;
+      }
+    }).modal('show');
+  });
+  
+  $('#addInstanceForm').form({
+    fields: {
+      name: {
+        identifier: 'name',
+        rules: [{
+          type: 'empty',
+          prompt: 'Please enter a name for the instance'
+        }]
+      },
+      token: {
+        identifier: 'token',
+        rules: [{
+          type: 'empty',
+          prompt: 'Please enter an authentication token for the instance'
+        }]
+      },
+      events: {
+        identifier: 'events',
+        rules: [{
+          type: 'empty',
+          prompt: 'Please select at least one event'
+        }]
+      },
+      proxy_url: {
+        identifier: 'proxy_url',
+        optional: true,
+        rules: [{
+          type: 'regExp[^(https?|socks5)://.*]',
+          prompt: 'Proxy URL must start with http://, https://, or socks5://'
+        }]
+      },
+      s3_endpoint: {
+        identifier: 's3_endpoint',
+        optional: true,
+        rules: [{
+          type: 'url',
+          prompt: 'Please enter a valid S3 endpoint URL'
+        }]
+      },
+      s3_bucket: {
+        identifier: 's3_bucket',
+        optional: true,
+        rules: [{
+          type: 'regExp[^[a-z0-9][a-z0-9.-]*[a-z0-9]$]',
+          prompt: 'Please enter a valid S3 bucket name'
+        }]
+      }
+    },
+    onSuccess: function(event, fields) {
+      event.preventDefault();
+      
+      // Validate conditional fields
+      const proxyEnabled = fields.proxy_enabled === 'on' || fields.proxy_enabled === true;
+      const s3Enabled = fields.s3_enabled === 'on' || fields.s3_enabled === true;
+      
+      if (proxyEnabled && !fields.proxy_url) {
+        showError('Proxy URL is required when proxy is enabled');
+        return false;
+      }
+      
+      if (s3Enabled) {
+        if (!fields.s3_bucket) {
+          showError('S3 bucket name is required when S3 is enabled');
+          return false;
+        }
+        if (!fields.s3_access_key) {
+          showError('S3 access key is required when S3 is enabled');
+          return false;
+        }
+        if (!fields.s3_secret_key) {
+          showError('S3 secret key is required when S3 is enabled');
+          return false;
+        }
+      }
+      
+      addInstance(fields).then((result) => {
+        if (result.success) {
+          showSuccess('Instance created successfully');
+          // Refresh the instances list
+          updateAdmin();
+        } else {
+          showError('Failed to create instance: ' + (result.error || 'Unknown error'));
+        }
+      }).catch((error) => {
+        showError('Error creating instance: ' + error.message);
+      });
+      
+      $('#addInstanceModal').modal('hide');
+      $('#addInstanceForm').form('reset');
+      $('.ui.dropdown').dropdown('restore defaults');
+      // Reset toggles
+      $('#addInstanceProxyToggle').checkbox('set unchecked');
+      $('#addInstanceS3Toggle').checkbox('set unchecked');
+      $('#addInstanceProxyUrlField').hide();
+      $('#addInstanceS3Fields').hide();
     }
-    
-    // Marcar como inicializada
-    window.appInitialized = true;
-    
-    // Sincronizar token antes de inicializar
-    syncAuthToken();
-    
-    try {
-        // Limpar o localStorage se o URL tiver o parâmetro clearCache=true
-        const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.has('clearCache') && urlParams.get('clearCache') === 'true') {
-            localStorage.clear();
-            showToast('Cache limpo com sucesso', 'success');
-        }
-        
-        // Verificar se tem token na URL ou localStorage
-        const token = await initializeToken();
-        
-        if (token) {
-            // Verificar status de administrador
-            await checkAdminStatus();
-            
-            // Carregar instâncias disponíveis
-            if (typeof loadInstances === 'function') {
-                await loadInstances();
-            }
-            
-            // Inicializar a interface após autenticação
-            initializeInterface();
-        }
-        
-        // Verificar se é modo de depuração
-        if (urlParams.has('debug') && urlParams.get('debug') === 'true') {
-            appConfig.debug = true;
-            console.log('Debug mode enabled');
-            
-            // Adicionar badge de debug ao nome da aplicação
-            const navbarBrand = document.querySelector('.navbar-brand');
-            if (navbarBrand) {
-                navbarBrand.innerHTML += '<span class="badge bg-danger ms-2">DEBUG</span>';
-            }
-        }
-        
-        // Registrar evento para o botão de pareamento por telefone
-        const pairPhoneBtn = document.getElementById('pairPhoneBtn');
-        if (pairPhoneBtn) {
-            pairPhoneBtn.addEventListener('click', pairPhone);
-        }
-        
-        // Adicionar botão de logout se não existir
-        const navbarNav = document.querySelector('.navbar-nav');
-        if (navbarNav && !document.getElementById('logoutBtn') && authState.isAuthenticated) {
-            const logoutItem = document.createElement('li');
-            logoutItem.className = 'nav-item';
-            logoutItem.innerHTML = `
-                <a class="nav-link" href="#" id="logoutBtn">
-                    <i class="bi bi-box-arrow-right"></i>Sair
-                </a>
-            `;
-            navbarNav.appendChild(logoutItem);
-            
-            document.getElementById('logoutBtn').addEventListener('click', () => {
-                if (confirm('Tem certeza que deseja sair?')) {
-                    logout();
-                }
-            });
-        }
-    } catch (error) {
-        console.error('[DEBUG] Erro na inicialização da aplicação:', error);
-        showToast('Erro ao inicializar aplicação. Verifique o console.', 'danger');
-    }
+  });
+
+  init();
 });
 
-/**
- * Função para carregar estatísticas do painel admin
- */
-async function loadAdminStats() {
-    if (!authState?.isAdmin) return;
-    
-    try {
-        addLog('Carregando estatísticas de administrador...', 'info');
-        showLoading('Atualizando painel administrativo...');
-        
-        // Carregar lista de instâncias através da API
-        const instancesResponse = await makeApiCall('/instances', 'GET');
-        
-        let instances = [];
-        if (instancesResponse.success && Array.isArray(instancesResponse.data)) {
-            instances = instancesResponse.data;
-            
-            // Contar instâncias por status
-            const totalInstances = instances.length;
-            let connectedCount = 0;
-            let disconnectedCount = 0;
-            
-            // Atualizar o dropdown de instâncias
-            const adminTestInstance = document.getElementById('adminTestInstance');
-            if (adminTestInstance) {
-                // Limpar opções existentes
-                adminTestInstance.innerHTML = '<option value="">Selecione uma instância</option>';
-                
-                // Contar conectados/desconectados e adicionar ao dropdown
-                instances.forEach(instance => {
-                    const isConnected = instance.connected === 1 || instance.connected === true;
-                    if (isConnected) {
-                        connectedCount++;
-                    } else {
-                        disconnectedCount++;
-                    }
-                    
-                    // Adicionar ao dropdown
-                    const option = document.createElement('option');
-                    option.value = instance.id;
-                    option.textContent = `${instance.name || 'Instância ' + instance.id} (${instance.phone || 'Sem número'})`;
-                    option.dataset.phone = instance.phone || '';
-                    option.dataset.jid = instance.jid || '';
-                    adminTestInstance.appendChild(option);
-                });
-                
-                // Atualizar contadores
-                const totalInstancesEl = document.getElementById('totalInstances');
-                const connectedInstancesEl = document.getElementById('connectedInstances');
-                const disconnectedInstancesEl = document.getElementById('disconnectedInstances');
-                
-                if (totalInstancesEl) {
-                    totalInstancesEl.textContent = totalInstances;
-                    totalInstancesEl.classList.add('fade-in');
-                    setTimeout(() => totalInstancesEl.classList.remove('fade-in'), 500);
-                }
-                
-                if (connectedInstancesEl) {
-                    connectedInstancesEl.textContent = connectedCount;
-                    connectedInstancesEl.classList.add('fade-in');
-                    setTimeout(() => connectedInstancesEl.classList.remove('fade-in'), 500);
-                }
-                
-                if (disconnectedInstancesEl) {
-                    disconnectedInstancesEl.textContent = disconnectedCount;
-                    disconnectedInstancesEl.classList.add('fade-in');
-                    setTimeout(() => disconnectedInstancesEl.classList.remove('fade-in'), 500);
-                }
-            }
-            
-            // Preencher a tabela de instâncias
-            updateAdminInstancesList(instances);
-        } else {
-            addLog('Falha ao carregar lista de instâncias', 'error');
-        }
-        
-        hideLoading();
-        addLog('Estatísticas de administração atualizadas', 'success');
-    } catch (error) {
-        hideLoading();
-        addLog('Erro ao carregar estatísticas de administração', 'error');
-        console.error('Erro ao carregar estatísticas:', error);
-    }
+async function addInstance(data) {
+  console.log("Add Instance...");
+  const admintoken = getLocalStorageItem('admintoken');
+  const myHeaders = new Headers();
+  myHeaders.append('authorization', admintoken);
+  myHeaders.append('Content-Type', 'application/json');
+  
+  // Build proxy configuration
+  const proxyEnabled = data.proxy_enabled === 'on' || data.proxy_enabled === true;
+  const proxyConfig = {
+    enabled: proxyEnabled,
+    proxyURL: proxyEnabled ? (data.proxy_url || '') : ''
+  };
+  
+  // Build S3 configuration
+  const s3Enabled = data.s3_enabled === 'on' || data.s3_enabled === true;
+  const s3PathStyle = data.s3_path_style === 'on' || data.s3_path_style === true;
+  const s3Config = {
+    enabled: s3Enabled,
+    endpoint: s3Enabled ? (data.s3_endpoint || '') : '',
+    region: s3Enabled ? (data.s3_region || '') : '',
+    bucket: s3Enabled ? (data.s3_bucket || '') : '',
+    accessKey: s3Enabled ? (data.s3_access_key || '') : '',
+    secretKey: s3Enabled ? (data.s3_secret_key || '') : '',
+    pathStyle: s3PathStyle,
+    publicURL: s3Enabled ? (data.s3_public_url || '') : '',
+    mediaDelivery: s3Enabled ? (data.s3_media_delivery || 'base64') : 'base64',
+    retentionDays: s3Enabled ? (parseInt(data.s3_retention_days) || 30) : 30
+  };
+  
+  const payload = {
+    name: data.name,
+    token: data.token,
+    events: data.events.join(','),
+    webhook: data.webhook_url || '',
+    expiration: 0,
+    proxyConfig: proxyConfig,
+    s3Config: s3Config
+  };
+  
+  console.log("Payload being sent:", payload);
+  
+  res = await fetch(baseUrl + "/admin/users", {
+    method: "POST",
+    headers: myHeaders,
+    body: JSON.stringify(payload)
+  });
+  
+  const responseData = await res.json();
+  console.log("Response:", responseData);
+  return responseData;
 }
 
-/**
- * Enviar uma mensagem de teste
- */
-async function sendTestMessage() {
-    const instanceSelect = document.getElementById('adminTestInstance');
-    const messageInput = document.getElementById('adminTestMessage');
-    const messageTypeSelect = document.getElementById('adminTestMessageType');
-    
-    if (!instanceSelect || !messageInput) return;
-    
-    const instanceId = instanceSelect.value;
-    const message = messageInput.value.trim();
-    const messageType = messageTypeSelect ? messageTypeSelect.value : 'text';
-    
-    if (!instanceId) {
-        showToast('Selecione uma instância', 'warning');
-        return;
-    }
-    
-    if (!message) {
-        showToast('Digite uma mensagem', 'warning');
-        return;
-    }
-    
-    try {
-        showLoading('Enviando mensagem de teste...');
-        
-        // Obter instância selecionada
-        const selectedOption = instanceSelect.options[instanceSelect.selectedIndex];
-        const phone = selectedOption.dataset.phone || '';
-        const jid = selectedOption.dataset.jid || '';
-        
-        // Usar o número de telefone da instância se disponível, caso contrário, usar o JID
-        let recipient = '';
-        if (phone) {
-            recipient = phone;
-        } else if (jid) {
-            recipient = jid.split('@')[0]; // Extrair o número do JID
-        }
-        
-        if (!recipient) {
-            hideLoading();
-            showToast('Não foi possível obter o número de telefone da instância', 'error');
-            return;
-        }
-        
-        // Definir o ID da instância correta para a requisição
-        window.currentInstanceForRequest = instanceId;
-        
-        // Payload padrão para mensagens de texto
-        let payload = {
-            phone: recipient
-        };
-        
-        let endpoint = '';
-        
-        // Configurar o payload com base no tipo de mensagem
-        switch (messageType) {
-            case 'text':
-                endpoint = '/chat/send/text';
-                payload.message = message;
-                break;
-                
-            case 'image':
-                endpoint = '/chat/send/image';
-                // Para teste simples, usamos uma imagem de exemplo
-                payload.image = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEAAQMAAABmvDolAAAAA1BMVEUAAACnej3aAAAAAXRSTlMAQObYZgAAAB9JREFUaN7twQENAAAAwqD3T20PBxQAAAAAAAAAAHwYCcQAAVstBqEAAAAASUVORK5CYII=';
-                payload.caption = message;
-                break;
-                
-            case 'document':
-                endpoint = '/chat/send/document';
-                // Para teste, criar um documento de texto simples
-                const encoder = new TextEncoder();
-                const bytes = encoder.encode(message);
-                const base64 = btoa(String.fromCharCode(...new Uint8Array(bytes)));
-                payload.document = `data:application/octet-stream;base64,${base64}`;
-                payload.fileName = 'mensagem-teste.txt';
-                break;
-                
-            case 'location':
-                endpoint = '/chat/send/location';
-                payload.longitude = -46.633308; // São Paulo
-                payload.latitude = -23.550520;
-                payload.name = message || 'Localização de teste';
-                break;
-                
-            default:
-                endpoint = '/chat/send/text';
-                payload.message = message;
-        }
-        
-        // Enviar mensagem usando a API
-        const response = await makeApiCall(endpoint, 'POST', payload);
-        
-        hideLoading();
-        
-        if (response.success) {
-            showToast(`Mensagem ${messageType} enviada com sucesso`, 'success');
-            addLog(`Mensagem de teste ${messageType} enviada para ${recipient}`, 'success');
-            
-            // Limpar campo de mensagem
-            messageInput.value = '';
-        } else {
-            showToast(`Erro ao enviar mensagem: ${response.error || 'Falha na comunicação'}`, 'danger');
-            addLog(`Falha ao enviar mensagem de teste: ${response.error || 'Erro desconhecido'}`, 'error');
-        }
-        
-        // Limpar ID temporário da instância
-        delete window.currentInstanceForRequest;
-    } catch (error) {
-        hideLoading();
-        showToast('Erro ao enviar mensagem', 'danger');
-        addLog(`Erro ao enviar mensagem: ${error.message || 'Erro desconhecido'}`, 'error');
-    }
-}
-
-/**
- * Realizar o pareamento por telefone
- */
-async function pairPhone() {
-    if (!instancesState?.currentInstance) {
-        addLog('Nenhuma instância selecionada', 'error');
-        showToast('Selecione uma instância primeiro', 'warning');
-        return;
-    }
-    
-    const phoneInput = document.getElementById('phoneInput');
-    if (!phoneInput) return;
-    
-    const phone = phoneInput.value.trim();
-    if (!phone) {
-        showToast('Digite um número de telefone válido', 'warning');
-        return;
-    }
-    
-    try {
-        const instanceId = instancesState.currentInstance;
-        showLoading(`Gerando código de pareamento para instância ${instanceId}...`);
-        addLog(`Solicitando código de pareamento para ${phone} na instância ${instanceId}...`);
-        
-        // Verificar se a instância está conectada
-        const statusResponse = await makeApiCall(`/instances/${instanceId}/status`, 'GET');
-        let needsConnect = false;
-        
-        if (!statusResponse.success || 
-            !(statusResponse.data?.Connected === true || statusResponse.data?.connected === true)) {
-            needsConnect = true;
-            addLog('Instância não está conectada. Iniciando conexão...', 'info');
-        }
-        
-        // Se precisar conectar, fazemos isso antes de pedir o código
-        if (needsConnect) {
-            const connectResponse = await makeApiCall(`/instances/${instanceId}/connect`, 'POST', {
-                Subscribe: ["Message", "ReadReceipt", "Presence", "ChatPresence"],
-                Immediate: true
-            });
-            
-            if (!connectResponse.success) {
-                hideLoading();
-                showToast(`Falha ao conectar para gerar código: ${connectResponse.error || 'Erro na conexão'}`, 'danger');
-                addLog(`Falha ao conectar instância ${instanceId}: ${connectResponse.error || 'Erro desconhecido'}`, 'error');
-                return;
-            }
-            
-            // Aguardar um momento para que a conexão seja estabelecida
-            await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-        
-        // Usar o formato correto dos parâmetros
-        const response = await makeApiCall(`/instances/${instanceId}/pairphone`, 'POST', {
-            Phone: phone // Primeira letra maiúscula como no backend
+function webhookModal() {
+  getWebhook().then((response)=>{
+    if(response.success==true) {
+      $('#webhookEvents').val(response.data.subscribe);
+      $('#webhookEvents').dropdown('set selected', response.data.subscribe);
+      $('#webhookinput').val(response.data.webhook);
+      $('#modalSetWebhook').modal({onApprove: function() {
+        setWebhook().then((result)=>{
+          if(result.success===true) {
+             $.toast({ class: 'success', message: `Webhook set successfully !`});
+          } else {
+             $.toast({ class: 'error', message: `Problem setting webhook: ${result.error}`});
+          }
         });
-        
-        hideLoading();
-        
-        const pairCode = document.getElementById('pairCode');
-        const pairCodeContainer = document.getElementById('pairCodeContainer');
-        
-        if (!pairCode || !pairCodeContainer) return;
-        
-        // Verificar formato da resposta
-        let linkingCode;
-        
-        if (response.success && response.data) {
-            linkingCode = response.data.LinkingCode || response.data.linkingCode;
-        }
-        
-        if (linkingCode) {
-            // Mostrar o código
-            pairCode.textContent = linkingCode;
-            pairCodeContainer.classList.remove('d-none');
-            
-            addLog(`Código de pareamento gerado com sucesso para instância ${instanceId}`, 'success');
-            showToast('Código de pareamento gerado com sucesso');
-            
-            // Verificar status para confirmar se o pareamento foi bem-sucedido
-            if (typeof startQrCheck === 'function') {
-                startQrCheck(instanceId);
-            }
-        } else {
-            const errorMsg = response.error || 'Falha ao gerar código de pareamento';
-            addLog(`Falha ao gerar código para instância ${instanceId}: ${errorMsg}`, 'error');
-            showToast(`Falha ao gerar código: ${errorMsg}`, 'danger');
-            pairCodeContainer.classList.add('d-none');
-        }
-    } catch (error) {
-        hideLoading();
-        addLog('Erro ao gerar código de pareamento', 'error');
-        showToast('Erro ao gerar código de pareamento', 'danger');
-        
-        const pairCodeContainer = document.getElementById('pairCodeContainer');
-        if (pairCodeContainer) {
-            pairCodeContainer.classList.add('d-none');
-        }
+        return true;
+      }}).modal('show');
     }
+  });
 }
 
-// Atualizar o encerramento para limpar intervalos
-window.addEventListener('beforeunload', function() {
-    // Limpar todos os intervalos e timers
-    stopStatusPolling();
-    
-    // Salvar estado atual
-    if (instancesState?.currentInstance) {
-        localStorage.setItem('instanceStatus', JSON.stringify({
-            connected: true,
-            loggedIn: true,
-            lastCheck: Date.now()
-        }));
+function modalPairPhone() {
+  $('#modalLoginWithCode').modal({
+     onVisible: function() {
+       document.getElementById('pairInfo').classList.remove('hidden');;
+       document.getElementById('pairHelp').classList.remove('hidden');;
+     },
+     onHidden: function() {
+       if(scanned==true) {
+           document.getElementById('loginQR').classList.add('hidden');
+           document.getElementById('loginCode').classList.add('hidden');
+           document.getElementById('logoutWidget').classList.remove('hidden');
+       }
+     }
+   })
+   .modal('show');
+}
+
+function handleRegularLogin(token,notifications=false) {
+  console.log('Regular login with token:', token);
+  setLocalStorageItem('token', token, 6);
+  removeLocalStorageItem('isAdmin');
+  $('.adminlogin').hide();
+  statusRequest().then((status) => {
+    if(status.success==true) {
+      console.log(status.data);
+      setLocalStorageItem('currentInstance', status.data.id, 6);
+      // Save current user JID for groups functionality
+      if(status.data.jid) {
+        setLocalStorageItem('currentUserJID', status.data.jid, 6);
+        window.currentUserJID = status.data.jid;
+      }
+      populateInstances([status.data]);
+      showRegularUser();
+      $('.logingrid').addClass('hidden');
+      $('.admingrid').addClass('hidden');
+      $('.maingrid').removeClass('hidden');
+      $('.adminlogin').hide();
+      showWidgets();
+      $('#'+status.data.instanceId).removeClass('hidden');
+      updateUser();
+    } else {
+      removeLocalStorageItem('token');
+      showError("Invalid credentials");
+      $('#loginToken').focus();
     }
-}); 
+  });
+}
+  
+function updateUser() {
+  // retrieves one instance status at regular interval
+  status().then((result)=> {
+    if(result.success==true) {
+      // Save current user JID for groups functionality
+      if(result.data.jid) {
+        setLocalStorageItem('currentUserJID', result.data.jid, 6);
+        window.currentUserJID = result.data.jid;
+      }
+      populateInstances([result.data]);
+    } 
+  });
+  clearTimeout(updateUserTimeout)
+  updateUserTimeout = setTimeout(function() { updateUser() }, updateInterval);
+}
+
+function updateAdmin() {
+  // retrieves all instances status at regular intervals
+  const current = getLocalStorageItem("currentInstance")
+  if(!current) {
+    // get all instances status
+    getUsers().then((result) => {
+      if(result.success==true) {
+        populateInstances(result.data)
+      } 
+    });
+  } else {
+    // get only active instance status
+    status().then((result)=> {
+      if(result.success==true) {
+        populateInstances([result.data]);
+      } 
+    });
+  }
+  clearTimeout(updateAdminTimeout)
+  updateAdminTimeout = setTimeout(function() { updateAdmin() }, updateInterval);
+}
+
+function handleAdminLogin(token,notifications=false) {
+  console.log('Admin login with token:', token);
+  setLocalStorageItem('admintoken', token, 6);
+  setLocalStorageItem('isAdmin', true, 6);
+  $('.adminlogin').show();
+  const currentInstance = getLocalStorageItem("currentInstance");
+
+  getUsers().then((result) => {
+    if(result.success==true) {
+
+      showAdminUser();
+
+      if(currentInstance == null) {
+        $('.admingrid').removeClass('hidden');
+        populateInstances(result.data);
+      } else {
+        populateInstances(result.data);
+        $('.maingrid').removeClass('hidden');
+        showWidgets();
+        const showInstanceId=`instance-card-${currentInstance}`
+        $('#'+showInstanceId).removeClass('hidden');
+      }
+      $('#loading').removeClass('active');
+      $('.logingrid').addClass('hidden');
+      updateAdmin();
+    } else {
+      removeLocalStorageItem('admintoken');
+      removeLocalStorageItem('token');
+      removeLocalStorageItem('isAdmin');
+      showError("Admin login failed");
+      $('#loginToken').focus();
+    }
+  });
+}
+    
+function showError(message) {
+  $('body').toast({
+    class: 'error',
+    message: message,
+    showIcon: 'exclamation circle',
+    position: 'top center',
+    showProgress: 'bottom'
+  });
+}
+    
+function showSuccess(message) {
+  $('body').toast({
+    class: 'success',
+    message: message,
+    showIcon: 'check circle',
+    position: 'top center',
+    showProgress: 'bottom'
+  });
+}
+
+function deleteInstance(id) {
+  instanceToDelete = id;
+  $('#deleteInstanceModal').modal({
+    onApprove: function() {
+      performDelete(instanceToDelete);
+    }
+  }).modal('show');
+}
+
+async function performDelete(id) {
+  console.log('Deleting instance with ID:', id);
+  const admintoken = getLocalStorageItem('admintoken');
+  const myHeaders = new Headers();
+  myHeaders.append('authorization', admintoken);
+  myHeaders.append('Content-Type', 'application/json');
+  res = await fetch(baseUrl + "/admin/users/"+id+"/full", {
+    method: "DELETE",
+    headers: myHeaders
+  });
+  data = await res.json();
+  if(data.success===true) {
+    $('#instance-row-' + id).remove();
+    showDeleteSuccess();
+  } else {
+    showError('Error deleting instance');
+  }
+}
+
+function showDeleteSuccess() {
+  $('body').toast({
+    class: 'success',
+    message: 'Instance deleted successfully',
+    position: 'top right',
+    showProgress: 'bottom'
+  });
+}
+
+function openDashboard(id,token) {
+  setLocalStorageItem('currentInstance', id, 6);
+  setLocalStorageItem('token', token, 6);
+  $(`#instance-card-${id}`).removeClass('hidden');
+  console.log($(`#instance-card-${id}`));
+  showWidgets();
+  $('.admingrid').addClass('hidden');
+  $('.maingrid').removeClass('hidden');
+  $('.card.no-hover').addClass('hidden');
+  $(`#instance-card-${id}`).removeClass('hidden');
+  $('.adminlogin').show();
+}
+
+function goBackToList() {
+  $('#instances-cards > div').addClass('hidden');
+  removeLocalStorageItem('currentInstance');
+  currentInstanceData = null; // Clear instance data
+  updateAdmin();
+  removeLocalStorageItem('token');
+  hideWidgets();
+  $('.maingrid').addClass('hidden');
+  $('.admingrid').removeClass('hidden');
+  $('.adminlogin').hide();
+}
+
+async function sendTextMessage() {
+  const token = getLocalStorageItem('token');
+  const sendPhone = document.getElementById('messagesendphone').value.trim();
+  const sendBody = document.getElementById('messagesendtext').value;
+  const myHeaders = new Headers();
+  const uuid = generateMessageUUID();
+  myHeaders.append('token', token);
+  myHeaders.append('Content-Type', 'application/json');
+  res = await fetch(baseUrl + "/chat/send/text", {
+    method: "POST",
+    headers: myHeaders,
+    body: JSON.stringify({Phone: sendPhone, Body: sendBody, Id: uuid})
+  });
+  data = await res.json();
+  return data;
+}
+ 
+async function deleteMessage() {
+  const deletePhone = document.getElementById('messagedeletephone').value.trim();
+  const deleteId = document.getElementById('messagedeleteid').value;
+  const myHeaders = new Headers();
+  myHeaders.append('token', token);
+  myHeaders.append('Content-Type', 'application/json');
+  res = await fetch(baseUrl + "/chat/delete", {
+    method: "POST",
+    headers: myHeaders,
+    body: JSON.stringify({Phone: deletePhone, Id: deleteId})
+  });
+  data = await res.json();
+  return data;
+}
+ 
+async function setWebhook() {
+  const token = getLocalStorageItem('token');
+  const webhook = document.getElementById('webhookinput').value.trim();
+  const events = $('#webhookEvents').dropdown('get value')
+  if (events.includes("All")) {
+    events.length = 0;
+    events.push("All");
+  }
+  const myHeaders = new Headers();
+  myHeaders.append('token', token);
+  myHeaders.append('Content-Type', 'application/json');
+  res = await fetch(baseUrl + "/webhook", {
+    method: "POST",
+    headers: myHeaders,
+    body: JSON.stringify({webhookurl: webhook, events: events})
+  });
+  data = await res.json();
+  return data;
+}
+ 
+function doUserAvatar() {
+  const userAvatarInput = document.getElementById('useravatarinput');
+  let phone = userAvatarInput.value.trim();
+  if (phone) {
+    if (!phone.endsWith('@s.whatsapp.net')) {
+      phone = phone.includes('@') ? phone.split('@')[0] + '@s.whatsapp.net' : phone + '@s.whatsapp.net';
+    }
+    userAvatar(phone).then((data) => {
+      document.getElementById("userAvatarContainer").classList.remove('hidden');
+      if (data.success && data.data && data.data.url) {
+        const userAvatarDiv = document.getElementById('userAvatarContainer');
+        userAvatarDiv.innerHTML=`<img src="${data.data.url}" alt="Profile Picture" class="user-avatar">`;
+      } else {
+          document.getElementById('userAvatarContainer').innerHTML = 'No user avatar found';
+      }
+    }).catch(error => {
+      document.getElementById('userAvatarContainer').innerHTML = 'Error fetching user avatar';
+      console.error('Error:', error);
+    });
+  }
+} 
+
+function doUserInfo() {
+  const userInfoInput = document.getElementById('userinfoinput');
+  let phone = userInfoInput.value.trim();
+  if (phone) {
+    if (!phone.endsWith('@s.whatsapp.net')) {
+      phone = phone.includes('@') ? phone.split('@')[0] + '@s.whatsapp.net' : phone + '@s.whatsapp.net';
+    }
+    userInfo(phone).then((data) => {
+      document.getElementById("userInfoContainer").classList.remove('hidden');
+      if (data.success && data.data && data.data.Users) {
+          const userInfoDiv = document.getElementById('userInfoContainer');
+          userInfoDiv.innerHTML = '';
+          
+          for (const [userJid, userData] of Object.entries(data.data.Users)) {
+              const userElement = document.createElement('div');
+              userElement.className = 'user-entry';
+              
+              const phoneNumber = userJid.split('@')[0];
+              userElement.innerHTML += `<strong>Phone: ${phoneNumber}</strong><br>`;
+              userElement.innerHTML += `Status: ${userData.Status || 'Not available'}<br>`;
+              userElement.innerHTML += `Verified Name: ${userData.VerifiedName || 'Not verified'}<br>`;
+              if (userData.Devices && userData.Devices.length > 0) {
+                  userElement.innerHTML += `Devices: ${userData.Devices.length}<br>`;
+              }
+              userInfoDiv.appendChild(userElement);
+          }
+      } else {
+          document.getElementById('userInfoContainer').innerHTML = 'No user data found';
+      }
+    }).catch(error => {
+      document.getElementById('userInfoContainer').innerHTML = 'Error fetching user info';
+      console.error('Error:', error);
+    });
+  }
+}
+
+function showWidgets() {
+  document.querySelectorAll('.widget').forEach(widget => {
+    widget.classList.remove('hidden');
+  });
+}
+
+function hideWidgets() {
+  document.querySelectorAll('.widget').forEach(widget => {
+    widget.classList.add('hidden');
+  });
+}
+
+async function connect(token='') {
+  console.log("Connecting...");
+  if(token=='') {
+     token = getLocalStorageItem('token');
+  }
+  const myHeaders = new Headers();
+  myHeaders.append('token', token);
+  myHeaders.append('Content-Type', 'application/json');
+  res = await fetch(baseUrl + "/session/connect", {
+    method: "POST",
+    headers: myHeaders,
+    body: JSON.stringify({Events: 'All', Immediate: true})
+  });
+  data = await res.json();
+  updateInterval=1000; // Decrease interval to react quicker to QR scan
+  return data;
+}
+
+async function disconnect(token) {
+  console.log("Disconnecting...");
+  if(token=='') {
+     token = getLocalStorageItem('token');
+  }
+  const myHeaders = new Headers();
+  myHeaders.append('token', token);
+  myHeaders.append('Content-Type', 'application/json');
+  res = await fetch(baseUrl + "/session/disconnect", {
+    method: "POST",
+    headers: myHeaders,
+  });
+  data = await res.json();
+  return data;
+}
+
+async function status() {
+  console.log("Get status...");
+  const token = getLocalStorageItem('token');
+  const myHeaders = new Headers();
+  myHeaders.append('token', token);
+  myHeaders.append('Content-Type', 'application/json');
+  res = await fetch(baseUrl + "/session/status", {
+    method: "GET",
+    headers: myHeaders
+  });
+  data = await res.json();
+  if(data.data.loggedIn==true) updateInterval=5000;
+  return data;
+}
+
+async function getUsers() {
+  console.log("Get users...");
+  const admintoken = getLocalStorageItem('admintoken');
+  const myHeaders = new Headers();
+  myHeaders.append('authorization', admintoken);
+  myHeaders.append('Content-Type', 'application/json');
+  res = await fetch(baseUrl + "/admin/users", {
+    method: "GET",
+    headers: myHeaders
+  });
+  data = await res.json();
+  return data;
+}
+
+async function getWebhook(token='') {
+  console.log("Getting webhook...");
+  if(token=='') {
+    token = getLocalStorageItem('token');
+  }
+  const myHeaders = new Headers();
+  myHeaders.append('token', token);
+  myHeaders.append('Content-Type', 'application/json');
+  try {
+    const res = await fetch(baseUrl + "/webhook", {
+      method: "GET",
+      headers: myHeaders,
+    });
+    data = await res.json();
+    return data;
+  } catch (error) {
+    return '{}';
+    throw error;
+  }
+}
+
+async function getContacts() {
+  console.log("Getting contacts...");
+  const token = getLocalStorageItem('token');
+  const myHeaders = new Headers();
+  myHeaders.append('token', token);
+  myHeaders.append('Content-Type', 'application/json');
+  try {
+    const res = await fetch(baseUrl + "/user/contacts", {
+      method: "GET",
+      headers: myHeaders,
+    });
+    data = await res.json();
+    if (data.code === 200) {
+      const transformedContacts = Object.entries(data.data).map(([phone, contact]) => ({
+          FullName: contact.FullName || "",
+          PushName: contact.PushName || "",
+          Phone: phone.split('@')[0] // Remove the @s.whatsapp.net part
+      }));
+      downloadJson(transformedContacts, 'contacts.json');
+      return transformedContacts;
+    } else {
+      throw new Error(`API returned code ${data.code}`);
+    }
+  } catch (error) {
+    console.error("Error fetching contacts:", error);
+    throw error;
+  }
+}
+
+async function userAvatar(phone) {
+  console.log("Requesting user avatar...");
+  const token = getLocalStorageItem('token');
+  const myHeaders = new Headers();
+  myHeaders.append('token', token);
+  myHeaders.append('Content-Type', 'application/json');
+  res = await fetch(baseUrl + "/user/avatar", {
+    method: "POST",
+    headers: myHeaders,
+    body: JSON.stringify({Phone: phone, Preview: false})
+  });
+  data = await res.json();
+  return data;
+}
+
+async function userInfo(phone) {
+  console.log("Requesting user info...");
+  const token = getLocalStorageItem('token');
+  const myHeaders = new Headers();
+  myHeaders.append('token', token);
+  myHeaders.append('Content-Type', 'application/json');
+  res = await fetch(baseUrl + "/user/info", {
+    method: "POST",
+    headers: myHeaders,
+    body: JSON.stringify({Phone: [phone]})
+  });
+  data = await res.json();
+  return data;
+}
+
+async function pairPhone(phone) {
+  console.log("Requesting pairing code...");
+  const token = getLocalStorageItem('token');
+  const myHeaders = new Headers();
+  myHeaders.append('token', token);
+  myHeaders.append('Content-Type', 'application/json');
+  res = await fetch(baseUrl + "/session/pairphone", {
+    method: "POST",
+    headers: myHeaders,
+    body: JSON.stringify({Phone: phone})
+  });
+  data = await res.json();
+  return data;
+}
+
+async function logout(token='') {
+  console.log("Login out...");
+  if(token=='') {
+    token = getLocalStorageItem('token');
+  }
+  const myHeaders = new Headers();
+  myHeaders.append('token', token);
+  myHeaders.append('Content-Type', 'application/json');
+  res = await fetch(baseUrl + "/session/logout", {
+    method: "POST",
+    headers: myHeaders,
+  });
+  data = await res.json();
+  return data;
+}
+
+async function getQr() {
+  const myHeaders = new Headers();
+  const token = getLocalStorageItem('token');
+  myHeaders.append('token', token);
+  res = await fetch(baseUrl + "/session/qr", {
+    method: "GET",
+    headers: myHeaders,
+  });
+  data = await res.json();
+  return data;
+}
+
+async function statusRequest() {
+  const myHeaders = new Headers();
+  const token = getLocalStorageItem('token');
+  const isAdminLogin = getLocalStorageItem('isAdmin');
+  if(token!=null && isAdminLogin==null) {
+    myHeaders.append('token', token);
+    res = await fetch(baseUrl + "/session/status", {
+      method: "GET",
+      headers: myHeaders,
+    });
+    data = await res.json();
+    return data;
+  }
+}
+
+function parseURLParams(url) {
+  var queryStart = url.indexOf("?") + 1,
+      queryEnd   = url.indexOf("#") + 1 || url.length + 1,
+      query = url.slice(queryStart, queryEnd - 1),
+      pairs = query.replace(/\+/g, " ").split("&"),
+      parms = {}, i, n, v, nv;
+
+  if (query === url || query === "") return;
+    for (i = 0; i < pairs.length; i++) {
+      nv = pairs[i].split("=", 2);
+      n = decodeURIComponent(nv[0]);
+      v = decodeURIComponent(nv[1]);
+      if (!parms.hasOwnProperty(n)) parms[n] = [];
+      parms[n].push(nv.length === 2 ? v : null);
+  }
+  return parms;
+}
+
+function downloadJson(data, filename) {
+  const jsonStr = JSON.stringify(data, null, 2);
+  const blob = new Blob([jsonStr], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  
+  // Cleanup
+  setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+  }, 100);
+}
+
+function generateMessageUUID() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
+function init() { 
+
+  // Starting
+  let notoken=0;
+  let scanInterval;
+  let token = getLocalStorageItem('token');
+  let admintoken = getLocalStorageItem('admintoken');
+  let isAdminLogin = getLocalStorageItem('isAdmin');
+  $('.adminlogin').hide();
+
+  if(token == null && admintoken == null) {
+    $('.logingrid').removeClass('hidden');
+    $('.maingrid').addClass('hidden');
+  } else {
+    if (isAdminLogin) {
+      handleAdminLogin(admintoken);
+    } else {
+      handleRegularLogin(token);
+    }
+  }
+}
+
+function populateInstances(instances) {
+  const tableBody = $('#instances-body');
+  const cardsContainer = $('#instances-cards'); // Assuming you have a container for cards
+  tableBody.empty();
+  cardsContainer.empty();
+  const currentInstance = getLocalStorageItem('currentInstance');
+
+  if(instances.length==0) {
+    const nodatarow = '<tr><td style="text-align:center;" colspan=5>No instances found</td></tr>'
+    tableBody.append(nodatarow);
+  }
+  instances.forEach(instance => {
+
+  const row = `
+      <tr>
+        <td>${instance.id}</td>
+        <td>${instance.name}</td>
+        <td><i class="${instance.connected ? 'check green' : 'times red'} icon"></i> <span class="status ${instance.connected}">${instance.connected ? 'Yes' : 'No'}</span></td>
+        <td><i class="${instance.loggedIn ? 'check green' : 'times red'} icon"></i> <span class="status ${instance.loggedIn}">${instance.loggedIn ? 'Yes' : 'No'}</span></td>
+        <td>
+          <button class="ui primary button dashboard-button" onclick="openDashboard('${instance.id}', '${instance.token}')">
+            <i class="external alternate icon"></i> Open
+          </button>
+          <button class="ui negative button dashboard-button" onclick="deleteInstance('${instance.id}')">
+            <i class="trash alternate icon"></i> Delete
+          </button>
+        </td>
+      </tr>
+  `;
+  tableBody.append(row);
+
+  const card = `
+      <div class="ui fluid card hidden no-hover" id="instance-card-${instance.id}">
+          <div class="content">
+              <div class="ui ${instance.loggedIn ? 'one' : 'two'} column stackable grid">
+                  <!-- Left Column - Instance Info -->
+                  <div class="column">
+                      <div class="header" style="font-size: 1.3em; margin-bottom: 0.5rem;">
+                          ${instance.name}
+                          <div class="ui labels" style="margin-top: 0.5em;">
+                              <div class="ui ${instance.connected ? 'green' : 'red'} horizontal label">
+                                  <i class="${instance.connected ? 'check' : 'times'} icon"></i>
+                                  ${instance.connected ? 'Connected' : 'Disconnected'}
+                              </div>
+                              <div class="ui ${instance.loggedIn ? 'green' : 'red'} horizontal label">
+                                  <i class="${instance.loggedIn ? 'check' : 'times'} icon"></i>
+                                  ${instance.loggedIn ? 'Logged In' : 'Logged Out'}
+                              </div>
+                          </div>
+                      </div>
+                      
+                      <div class="meta" style="margin-bottom: 1rem;">Instance ID: ${instance.id}</div>
+                      
+                      <div class="ui list">
+                          <div class="item">
+                              <div class="header">Token</div>
+                              <div class="content" style="word-break: break-all;">${instance.token}</div>
+                          </div>
+                          <div class="item">
+                              <div class="header">JID</div>
+                              <div class="content">${instance.jid || 'Not available'}</div>
+                          </div>
+                          <div class="item">
+                              <div class="header">Webhook</div>
+                              <div class="content" style="word-break: break-all;">${instance.webhook || 'Not configured'}</div>
+                          </div>
+                          <div class="item">
+                              <div class="header">Subscribed Events</div>
+                              <div class="content">${instance.events || 'Not configured'}</div>
+                          </div>
+                          <div class="item">
+                              <div class="header">Proxy</div>
+                              <div class="content">${instance.proxy_config.enabled ? 'Enabled' : 'Disabled'}</div>
+                          </div>
+                          <div class="item">
+                              <div class="header">Proxy URL</div>
+                              <div class="content">${instance.proxy_config.proxy_url || 'Not configured'}</div>
+                          </div>
+                          <div class="item">
+                              <div class="header">S3</div>
+                              <div class="content">${instance.s3_config.enabled ? 'Enabled' : 'Disabled'}</div>
+                          </div>
+                          <div class="item">
+                              <div class="header">S3 Endpoint</div>
+                              <div class="content">${instance.s3_config.endpoint || 'Not configured'}</div>
+                          </div>
+                      </div>
+                  </div>
+                  
+                  <!-- Right Column - QR Code (only shown if not logged in) -->
+                  ${!instance.loggedIn ? `
+                  <div class="column" style="display: flex; flex-direction: column; justify-content: center; align-items: center;">
+                      <div class="ui segment" style="width: 100%; max-width: 200px; height: 200px; display: flex; justify-content: center; align-items: center;">
+                        ${instance.qrcode ? 
+                          `<img src="${instance.qrcode}" style="max-height: 100%; max-width: 100%;">
+                      </div>
+                      <div>
+                        Open WhatsApp on your phone and tap<br/><i class="ellipsis vertical icon"></i>> Linked devices > Link a device.
+                          ` : 
+                                `<div class="ui icon header" style="text-align: center;">
+                                    <i class="qrcode icon" style="font-size: 3em;"></i>
+                                    <div class="sub header">QR Code will appear here</div>
+                                </div>`
+                           }
+                      </div>
+                    </div>
+                    ` : `
+                    <!--one column when no qr to display-->
+                    `}
+                </div>
+            </div>
+            
+            <div class="extra content">
+              <button class="ui primary positive button dashboard-button ${instance.connected === true ? 'hidden' : ''}" id="button-connect-${instance.id}" onclick="connect('${instance.token}')">Connect</button>
+              <button class="ui primary negative button dashboard-button ${instance.connected === true ? '' : 'hidden'}" id="button-logout-${instance.id}" onclick="logout('${instance.token}')">Logout</button>
+              <button class="ui primary positive button dashboard-button ${instance.connected === true && instance.loggedIn === false ? '' : 'hidden'} id="button-logout-${instance.id}" onclick="modalPairPhone()">Login with Pairing Code</button>
+              </div>
+        </div>
+        `;
+    cardsContainer.append(card);
+  });
+  if(currentInstance!==null) {
+     const showInstanceId=`instance-card-${currentInstance}`
+     $('#'+showInstanceId).removeClass('hidden');
+     
+     // Store current instance data globally for use in modals
+     const currentInstanceObj = instances.find(inst => inst.id === currentInstance);
+     if (currentInstanceObj) {
+       currentInstanceData = currentInstanceObj;
+     }
+  } 
+}
+
+/**
+ * Set an item in localStorage with expiry time (in hours)
+ * @param {string} key - Key to store under
+ * @param {*} value - Value to store
+ * @param {number} hours - Expiry time in hours (default: 1 hour)
+ */
+function setLocalStorageItem(key, value, hours = 1) {
+  const now = new Date();
+  const expiryTime = now.getTime() + hours * 60 * 60 * 1000; // Convert hours to milliseconds
+
+  const item = {
+    value: value,
+    expiry: expiryTime,
+  };
+
+  localStorage.setItem(key, JSON.stringify(item));
+}
+
+/**
+ * Get an item from localStorage. Returns null if expired or not found.
+ * @param {string} key - Key to retrieve
+ * @returns {*|null} - Stored value or null
+ */
+function getLocalStorageItem(key) {
+  const itemStr = localStorage.getItem(key);
+  if (!itemStr) return null;
+
+  try {
+    const item = JSON.parse(itemStr);
+    const now = new Date().getTime();
+
+    // Check if expired (only if the parsed item has an expiry property)
+    if (item.expiry && now > item.expiry) {
+      localStorage.removeItem(key); // Clean up expired item
+      return null;
+    }
+
+    // Return value only if the parsed item has a value property
+    return item.value !== undefined ? item.value : null;
+  } catch (e) {
+    // If JSON parsing fails, treat it as not found
+    return null;
+  }
+}
+
+/**
+ * Remove an item from localStorage
+ * @param {string} key - Key to remove
+ */
+function removeLocalStorageItem(key) {
+  localStorage.removeItem(key);
+}
+
+/**
+ * Clear all localStorage items (with or without expiry)
+ */
+function clearLocalStorage() {
+  localStorage.clear();
+}
+
+function showAdminUser() {
+  const indicator = document.getElementById('user-role-indicator');
+  const text = document.getElementById('user-role-text');
+  
+  indicator.className = 'item admin';
+  indicator.innerHTML = `
+    <i class="user shield icon"></i>
+    <div class="ui mini label">ADMIN</div>
+  `;
+}
+  
+function showRegularUser() {
+  const indicator = document.getElementById('user-role-indicator');
+  const text = document.getElementById('user-role-text');
+  
+  indicator.className = 'item user';
+  indicator.innerHTML = `
+    <i class="user icon"></i>
+    <div class="ui mini label">USER</div>
+  `;
+}
+
+// S3 Configuration Functions
+async function loadS3Config() {
+  // Check if we have instance data available (admin viewing specific instance)
+  if (currentInstanceData && currentInstanceData.s3_config) {
+    const s3Config = currentInstanceData.s3_config;
+    const hasConfig = s3Config.enabled || s3Config.endpoint || s3Config.bucket;
+    
+    $('#s3Endpoint').val(s3Config.endpoint || '');
+    $('#s3AccessKey').val(s3Config.access_key === '***' ? '' : s3Config.access_key || '');
+    $('#s3SecretKey').val(''); // Never show secret key
+    $('#s3Bucket').val(s3Config.bucket || '');
+    $('#s3Region').val(s3Config.region || '');
+    $('#s3ForcePathStyle').prop('checked', s3Config.path_style || false);
+    $('#s3PublicUrl').val(s3Config.public_url || '');
+    
+    // Media delivery dropdown
+    $('#s3MediaDelivery').dropdown('set selected', s3Config.media_delivery || 'base64');
+    
+    // Retention days
+    $('#s3RetentionDays').val(s3Config.retention_days || 30);
+    
+    // Show/hide delete button based on whether config exists
+    if (hasConfig) {
+      $('#deleteS3Config').show();
+    } else {
+      $('#deleteS3Config').hide();
+    }
+    
+    return;
+  }
+  
+  // Fallback to API call for regular users or when instance data is not available
+  const token = getLocalStorageItem('token');
+  const myHeaders = new Headers();
+  myHeaders.append('token', token);
+  
+  try {
+    const res = await fetch(baseUrl + "/session/s3/config", {
+      method: "GET",
+      headers: myHeaders
+    });
+    
+    if (res.ok) {
+      const data = await res.json();
+      if (data.code === 200 && data.data) {
+        const hasConfig = data.data.enabled || data.data.endpoint || data.data.bucket;
+        
+        $('#s3Endpoint').val(data.data.endpoint || '');
+        $('#s3AccessKey').val(data.data.access_key === '***' ? '' : data.data.access_key);
+        $('#s3SecretKey').val(''); // Never show secret key
+        $('#s3Bucket').val(data.data.bucket || '');
+        $('#s3Region').val(data.data.region || '');
+        $('#s3ForcePathStyle').prop('checked', data.data.path_style || false);
+        $('#s3PublicUrl').val(data.data.public_url || '');
+        
+        // Media delivery dropdown
+        $('#s3MediaDelivery').dropdown('set selected', data.data.media_delivery || 'base64');
+        
+        // Retention days
+        $('#s3RetentionDays').val(data.data.retention_days || 30);
+        
+        // Show/hide delete button based on whether config exists
+        if (hasConfig) {
+          $('#deleteS3Config').show();
+        } else {
+          $('#deleteS3Config').hide();
+        }
+      } else {
+        // No config found, hide delete button and set defaults
+        $('#deleteS3Config').hide();
+        $('#s3Endpoint').val('');
+        $('#s3AccessKey').val('');
+        $('#s3SecretKey').val('');
+        $('#s3Bucket').val('');
+        $('#s3Region').val('');
+        $('#s3ForcePathStyle').prop('checked', false);
+        $('#s3PublicUrl').val('');
+        $('#s3MediaDelivery').dropdown('set selected', 'base64');
+        $('#s3RetentionDays').val(30);
+      }
+    }
+  } catch (error) {
+    console.error('Error loading S3 config:', error);
+    $('#deleteS3Config').hide();
+  }
+}
+
+async function saveS3Config() {
+  const token = getLocalStorageItem('token');
+  const myHeaders = new Headers();
+  myHeaders.append('token', token);
+  myHeaders.append('Content-Type', 'application/json');
+  
+  const config = {
+    enabled: true,
+    endpoint: $('#s3Endpoint').val().trim(),
+    access_key: $('#s3AccessKey').val().trim(),
+    secret_key: $('#s3SecretKey').val().trim(),
+    bucket: $('#s3Bucket').val().trim(),
+    region: $('#s3Region').val().trim(),
+    path_style: $('#s3ForcePathStyle').is(':checked'),
+    public_url: $('#s3PublicUrl').val().trim(),
+    media_delivery: $('#s3MediaDelivery').val() || 'base64',
+    retention_days: parseInt($('#s3RetentionDays').val()) || 30
+  };
+  
+  try {
+    const res = await fetch(baseUrl + "/session/s3/config", {
+      method: "POST",
+      headers: myHeaders,
+      body: JSON.stringify(config)
+    });
+    
+    const data = await res.json();
+    if (data.success) {
+      showSuccess('S3 configuration saved successfully');
+      // Show delete button since we now have a configuration
+      $('#deleteS3Config').show();
+      $('#modalS3Config').modal('hide');
+    } else {
+      showError('Failed to save S3 configuration: ' + (data.error || 'Unknown error'));
+    }
+  } catch (error) {
+    showError('Error saving S3 configuration');
+    console.error('Error:', error);
+  }
+}
+
+async function testS3Connection() {
+  const token = getLocalStorageItem('token');
+  const myHeaders = new Headers();
+  myHeaders.append('token', token);
+  
+  // Show loading state
+  $('#testS3Connection').addClass('loading disabled');
+  
+  try {
+    const res = await fetch(baseUrl + "/session/s3/test", {
+      method: "POST",
+      headers: myHeaders
+    });
+    
+    const data = await res.json();
+    if (data.success) {
+      showSuccess('S3 connection test successful!');
+    } else {
+      showError('S3 connection test failed: ' + (data.error || 'Unknown error'));
+    }
+  } catch (error) {
+    showError('Error testing S3 connection');
+    console.error('Error:', error);
+  } finally {
+    $('#testS3Connection').removeClass('loading disabled');
+  }
+}
+
+async function deleteS3Config() {
+  // Show confirmation dialog
+  if (!confirm('Are you sure you want to delete the S3 configuration? This action cannot be undone.')) {
+    return;
+  }
+  
+  const token = getLocalStorageItem('token');
+  const myHeaders = new Headers();
+  myHeaders.append('token', token);
+  
+  // Show loading state
+  $('#deleteS3Config').addClass('loading disabled');
+  
+  try {
+    const res = await fetch(baseUrl + "/session/s3/config", {
+      method: "DELETE",
+      headers: myHeaders
+    });
+    
+    const data = await res.json();
+    if (data.success) {
+      showSuccess('S3 configuration deleted successfully');
+      
+      // Clear all form fields
+      $('#s3Endpoint').val('');
+      $('#s3AccessKey').val('');
+      $('#s3SecretKey').val('');
+      $('#s3Bucket').val('');
+      $('#s3Region').val('');
+      $('#s3ForcePathStyle').prop('checked', false);
+      $('#s3PublicUrl').val('');
+      $('#s3MediaDelivery').dropdown('set selected', 'base64');
+      $('#s3RetentionDays').val(30);
+      
+      // Hide delete button
+      $('#deleteS3Config').hide();
+      
+      $('#modalS3Config').modal('hide');
+    } else {
+      showError('Failed to delete S3 configuration: ' + (data.error || 'Unknown error'));
+    }
+  } catch (error) {
+    showError('Error deleting S3 configuration');
+    console.error('Error:', error);
+  } finally {
+    $('#deleteS3Config').removeClass('loading disabled');
+  }
+}
+
+// Proxy Configuration Functions
+async function loadProxyConfig() {
+  const token = getLocalStorageItem('token');
+  const myHeaders = new Headers();
+  myHeaders.append('token', token);
+  
+  try {
+    // Get user status to check proxy_config
+    const res = await fetch(baseUrl + "/session/status", {
+      method: "GET",
+      headers: myHeaders
+    });
+    
+    if (res.ok) {
+      const data = await res.json();
+      if (data.code === 200 && data.data && data.data.proxy_config) {
+        const proxyConfig = data.data.proxy_config;
+        const proxyUrl = proxyConfig.proxy_url || '';
+        const enabled = proxyConfig.enabled || false;
+        
+        // Set checkbox state
+        $('#proxyEnabled').prop('checked', enabled);
+        $('#proxyEnabledToggle').checkbox(enabled ? 'set checked' : 'set unchecked');
+        
+        // Set proxy URL
+        $('#proxyUrl').val(proxyUrl);
+        
+        // Show/hide URL field based on enabled state
+        if (enabled) {
+          $('#proxyUrlField').addClass('show');
+        } else {
+          $('#proxyUrlField').removeClass('show');
+        }
+      } else {
+        // No proxy config, set defaults
+        $('#proxyEnabled').prop('checked', false);
+        $('#proxyEnabledToggle').checkbox('set unchecked');
+        $('#proxyUrl').val('');
+        $('#proxyUrlField').removeClass('show');
+      }
+    }
+  } catch (error) {
+    console.error('Error loading proxy config:', error);
+  }
+}
+
+async function saveProxyConfig() {
+  const token = getLocalStorageItem('token');
+  const myHeaders = new Headers();
+  myHeaders.append('token', token);
+  myHeaders.append('Content-Type', 'application/json');
+  
+  const enabled = $('#proxyEnabled').is(':checked');
+  const proxyUrl = $('#proxyUrl').val().trim();
+  
+  // If proxy is disabled, send disable request
+  if (!enabled) {
+    const config = {
+      enable: false,
+      proxy_url: ''
+    };
+    
+    try {
+      const res = await fetch(baseUrl + "/session/proxy", {
+        method: "POST",
+        headers: myHeaders,
+        body: JSON.stringify(config)
+      });
+      
+      const data = await res.json();
+      if (data.success) {
+        showSuccess('Proxy disabled successfully');
+        $('#modalProxyConfig').modal('hide');
+      } else {
+        showError('Failed to disable proxy: ' + (data.error || 'Unknown error'));
+      }
+    } catch (error) {
+      showError('Error disabling proxy');
+      console.error('Error:', error);
+    }
+    return;
+  }
+  
+  // If enabled, validate proxy URL
+  if (!proxyUrl) {
+    showError('Proxy URL is required when proxy is enabled');
+    return;
+  }
+  
+  // Validate proxy URL has correct protocol
+  if (!proxyUrl.startsWith('http://') && !proxyUrl.startsWith('https://') && !proxyUrl.startsWith('socks5://')) {
+    showError('Proxy URL must start with http://, https://, or socks5://');
+    return;
+  }
+  
+  const config = {
+    enable: true,
+    proxy_url: proxyUrl
+  };
+  
+  try {
+    const res = await fetch(baseUrl + "/session/proxy", {
+      method: "POST",
+      headers: myHeaders,
+      body: JSON.stringify(config)
+    });
+    
+    const data = await res.json();
+    if (data.success) {
+      showSuccess('Proxy configuration saved successfully');
+      $('#modalProxyConfig').modal('hide');
+    } else {
+      showError('Failed to save proxy configuration: ' + (data.error || 'Unknown error'));
+    }
+  } catch (error) {
+    showError('Error saving proxy configuration');
+    console.error('Error:', error);
+  }
+}

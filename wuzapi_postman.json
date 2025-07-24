@@ -1,8 +1,8 @@
 {
   "info": {
     "_postman_id": "b275f9a7-7fd5-4197-b5de-4e3a9c9d2d78",
-    "name": "WuzAPI Collection Completa",
-    "description": "API REST para interagir com WhatsApp usando a biblioteca whatsmeow.",
+    "name": "WuzAPI Complete Collection",
+    "description": "REST API for interacting with WhatsApp using the whatsmeow library.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -24,7 +24,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["admin", "users"]
             },
-            "description": "Lista usuários"
+            "description": "List users"
           },
           "response": []
         },
@@ -44,14 +44,14 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"usuario_teste\",\n  \"token\": \"token_do_usuario\"\n}"
+              "raw": "{\n  \"name\": \"test_user\",\n  \"token\": \"user_token\",\n  \"webhook\": \"https://webhook.site/1234567890\",\n  \"events\": \"All\",\n  \"proxyConfig\": {\n    \"enabled\": true,\n    \"proxyURL\": \"socks5://user:pass@host:port\"\n  }, \n  \"s3Config\": {\n    \"enabled\": true,\n    \"endpoint\": \"https://s3.amazonaws.com\",\n    \"region\": \"us-east-1\",\n    \"bucket\": \"my-bucket\",\n    \"accessKey\": \"AKIAIOSFODNN7EXAMPLE\",\n    \"secretKey\": \"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\",\n    \"pathStyle\": false,\n    \"publicURL\": \"https://cdn.meusite.com\",\n    \"mediaDelivery\": \"both\",\n    \"retentionDays\": 30\n  }\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/admin/users",
               "host": ["{{baseUrl}}"],
               "path": ["admin", "users"]
             },
-            "description": "Adiciona usuário"
+            "description": "Add user"
           },
           "response": []
         },
@@ -70,7 +70,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["admin", "users", "1"]
             },
-            "description": "Exclui usuário"
+            "description": "Delete user"
           },
           "response": []
         }
@@ -102,7 +102,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["session", "connect"]
             },
-            "description": "Conecta ao WhatsApp"
+            "description": "Connect to WhatsApp"
           },
           "response": []
         },
@@ -121,7 +121,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["session", "disconnect"]
             },
-            "description": "Desconecta"
+            "description": "Disconnect"
           },
           "response": []
         },
@@ -159,7 +159,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["session", "status"]
             },
-            "description": "Status"
+            "description": "Get status"
           },
           "response": []
         },
@@ -178,7 +178,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["session", "qr"]
             },
-            "description": "QR Code"
+            "description": "Get QR code"
           },
           "response": []
         },
@@ -205,7 +205,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["session", "pairphone"]
             },
-            "description": "Parear por telefone"
+            "description": "Pair by phone"
           },
           "response": []
         },
@@ -232,7 +232,91 @@
               "host": ["{{baseUrl}}"],
               "path": ["session", "proxy"]
             },
-            "description": "Configurar proxy"
+            "description": "Set proxy"
+          },
+          "response": []
+        },
+        {
+          "name": "Configure S3",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "token",
+                "value": "{{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"enabled\": true,\n  \"endpoint\": \"https://s3.amazonaws.com\",\n  \"region\": \"us-east-1\",\n  \"bucket\": \"my-whatsapp-media\",\n  \"access_key\": \"AKIAIOSFODNN7EXAMPLE\",\n  \"secret_key\": \"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\",\n  \"path_style\": false,\n  \"public_url\": \"\",\n  \"media_delivery\": \"both\",\n  \"retention_days\": 30\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/session/s3/config",
+              "host": ["{{baseUrl}}"],
+              "path": ["session", "s3", "config"]
+            },
+            "description": "Configure S3 storage settings"
+          },
+          "response": []
+        },
+        {
+          "name": "Get S3 Configuration",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "token",
+                "value": "{{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/session/s3/config",
+              "host": ["{{baseUrl}}"],
+              "path": ["session", "s3", "config"]
+            },
+            "description": "Get current S3 configuration"
+          },
+          "response": []
+        },
+        {
+          "name": "Test S3 Connection",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "token",
+                "value": "{{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/session/s3/test",
+              "host": ["{{baseUrl}}"],
+              "path": ["session", "s3", "test"]
+            },
+            "description": "Test S3 connection"
+          },
+          "response": []
+        },
+        {
+          "name": "Delete S3 Configuration",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "token",
+                "value": "{{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/session/s3/config",
+              "host": ["{{baseUrl}}"],
+              "path": ["session", "s3", "config"]
+            },
+            "description": "Remove S3 configuration"
           },
           "response": []
         }
@@ -256,7 +340,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["webhook"]
             },
-            "description": "Obter webhook"
+            "description": "Get webhook"
           },
           "response": []
         },
@@ -276,14 +360,14 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"webhook\": \"https://example.net/webhook\",\n  \"events\": [\"Message\", \"ReadReceipt\"]\n}"
+              "raw": "{\n  \"WebhookURL\": \"https://example.net/webhook\",\n  \"Events\": [\"Message\", \"ReadReceipt\"]\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/webhook",
               "host": ["{{baseUrl}}"],
               "path": ["webhook"]
             },
-            "description": "Configurar webhook"
+            "description": "Set webhook"
           },
           "response": []
         },
@@ -302,7 +386,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["webhook"]
             },
-            "description": "Remover webhook"
+            "description": "Delete webhook"
           },
           "response": []
         },
@@ -322,14 +406,14 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"webhook\": \"https://example.net/webhook\",\n  \"events\": [\"Message\", \"ReadReceipt\"],\n  \"active\": true\n}"
+              "raw": "{\n  \"WebhookURL\": \"https://example.net/webhook\",\n  \"Events\": [\"Message\", \"ReadReceipt\"],\n  \"active\": true\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/webhook/update",
               "host": ["{{baseUrl}}"],
               "path": ["webhook", "update"]
             },
-            "description": "Atualizar webhook"
+            "description": "Update webhook"
           },
           "response": []
         }
@@ -354,14 +438,35 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"Phone\": \"5491155553935\",\n  \"Body\": \"Olá, como você está?\"\n}"
+              "raw": "{\n  \"Phone\": \"5491155553935\",\n  \"Body\": \"Hello, how are you?\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/chat/send/text",
               "host": ["{{baseUrl}}"],
               "path": ["chat", "send", "text"]
             },
-            "description": "Enviar texto"
+            "description": "Send text"
+          },
+          "response": []
+        },
+        {
+          "name": "Edit Message",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "token", "value": "{{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Phone\": \"5491155553934\",\n  \"Id\": \"AABBCC11223344\",\n  \"Body\": \"New edited message body\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/chat/send/edit",
+              "host": ["{{baseUrl}}"],
+              "path": ["chat", "send", "edit"]
+            },
+            "description": "Edit an existing message"
           },
           "response": []
         },
@@ -381,14 +486,14 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"Phone\": \"5491155553935\",\n  \"Image\": \"data:image/jpeg;base64,/9j/\",\n  \"Caption\": \"Imagem\"\n}"
+              "raw": "{\n  \"Phone\": \"5491155553935\",\n  \"Image\": \"data:image/jpeg;base64,/9j/\",\n  \"Caption\": \"Image\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/chat/send/image",
               "host": ["{{baseUrl}}"],
               "path": ["chat", "send", "image"]
             },
-            "description": "Enviar imagem"
+            "description": "Send image"
           },
           "response": []
         },
@@ -415,7 +520,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["chat", "send", "audio"]
             },
-            "description": "Enviar áudio"
+            "description": "Send audio"
           },
           "response": []
         },
@@ -442,7 +547,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["chat", "send", "document"]
             },
-            "description": "Enviar documento"
+            "description": "Send document"
           },
           "response": []
         },
@@ -462,14 +567,14 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"Phone\": \"5491155553935\",\n  \"Video\": \"data:video/mp4;base64,/9j/\",\n  \"Caption\": \"Vídeo\"\n}"
+              "raw": "{\n  \"Phone\": \"5491155553935\",\n  \"Video\": \"data:video/mp4;base64,/9j/\",\n  \"Caption\": \"Video\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/chat/send/video",
               "host": ["{{baseUrl}}"],
               "path": ["chat", "send", "video"]
             },
-            "description": "Enviar vídeo"
+            "description": "Send video"
           },
           "response": []
         },
@@ -496,7 +601,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["chat", "send", "sticker"]
             },
-            "description": "Enviar sticker"
+            "description": "Send sticker"
           },
           "response": []
         },
@@ -516,14 +621,14 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"Phone\": \"5491155553935\",\n  \"Name\": \"Local\",\n  \"Latitude\": 48.858,\n  \"Longitude\": 2.294\n}"
+              "raw": "{\n  \"Phone\": \"5491155553935\",\n  \"Name\": \"Location\",\n  \"Latitude\": 48.858,\n  \"Longitude\": 2.294\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/chat/send/location",
               "host": ["{{baseUrl}}"],
               "path": ["chat", "send", "location"]
             },
-            "description": "Enviar localização"
+            "description": "Send location"
           },
           "response": []
         },
@@ -550,7 +655,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["chat", "send", "contact"]
             },
-            "description": "Enviar contato"
+            "description": "Send contact"
           },
           "response": []
         },
@@ -570,14 +675,14 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"Phone\": \"5491155553935\",\n  \"Content\": \"Título\",\n  \"Footer\": \"Rodapé\",\n  \"Buttons\": [\n    {\"DisplayText\":\"Sim\",\"Type\":\"quickreply\"}\n  ]\n}"
+              "raw": "{\n  \"Phone\": \"5491155553935\",\n  \"Content\": \"Title\",\n  \"Footer\": \"Footer\",\n  \"Buttons\": [\n    {\"DisplayText\":\"Yes\",\"Type\":\"quickreply\"}\n  ]\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/chat/send/template",
               "host": ["{{baseUrl}}"],
               "path": ["chat", "send", "template"]
             },
-            "description": "Enviar template"
+            "description": "Send template"
           },
           "response": []
         },
@@ -604,7 +709,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["chat", "markread"]
             },
-            "description": "Marcar como lido"
+            "description": "Mark as read"
           },
           "response": []
         },
@@ -631,7 +736,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["chat", "react"]
             },
-            "description": "Reagir a mensagem"
+            "description": "React to message"
           },
           "response": []
         },
@@ -658,9 +763,30 @@
               "host": ["{{baseUrl}}"],
               "path": ["chat", "presence"]
             },
-            "description": "Definir presença"
+            "description": "Set presence"
           },
           "response": []
+        },
+        {
+          "name": "Delete Message",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "token", "value": "{{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Phone\": \"5491155553934\",\n  \"Id\": \"AABBCC11223344\"}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/chat/delete",
+              "host": ["{{baseUrl}}"],
+              "path": ["chat", "delete"]
+            },
+            "description": "Delete a message from a chat."
+          },
+          "response": [ ]
         }
       ]
     },
@@ -690,7 +816,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["user", "check"]
             },
-            "description": "Verificar usuários"
+            "description": "Check users"
           },
           "response": []
         },
@@ -717,7 +843,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["user", "info"]
             },
-            "description": "Informações de usuário"
+            "description": "Get user information"
           },
           "response": []
         },
@@ -744,7 +870,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["user", "presence"]
             },
-            "description": "Presença global"
+            "description": "Global presence"
           },
           "response": []
         },
@@ -771,7 +897,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["user", "avatar"]
             },
-            "description": "Obter avatar"
+            "description": "Get avatar"
           },
           "response": []
         },
@@ -790,7 +916,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["user", "contacts"]
             },
-            "description": "Listar contatos"
+            "description": "List contacts"
           },
           "response": []
         }
@@ -799,6 +925,90 @@
     {
       "name": "Group",
       "item": [
+        {
+          "name": "Create Group",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "token", "value": "{{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Name\": \"My New Group\",\n  \"Participants\": [\"5491155553934\", \"5491155553935\"]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/group/create",
+              "host": ["{{baseUrl}}"],
+              "path": ["group", "create"]
+            },
+            "description": "Create a new WhatsApp group with specified name and participants"
+          },
+          "response": [ ]
+        },
+        {
+          "name": "Set Group Locked",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "token", "value": "{{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"GroupJID\": \"120362023605733675@g.us\",\n  \"Locked\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/group/locked",
+              "host": ["{{baseUrl}}"],
+              "path": ["group", "locked"]
+            },
+            "description": "Configure group as locked (only admins can alter info) or unlocked"
+          },
+          "response": [ ]
+        },
+        {
+          "name": "Set Disappearing Timer",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "token", "value": "{{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"GroupJID\": \"120362023605733675@g.us\",\n  \"Duration\": \"24h\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/group/ephemeral",
+              "host": ["{{baseUrl}}"],
+              "path": ["group", "ephemeral"]
+            },
+            "description": "Configure disappearing messages. Use '24h', '7d', '90d', or 'off'"
+          },
+          "response": [ ]
+        },
+        {
+          "name": "Remove Group Photo",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "token", "value": "{{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"GroupJID\": \"120362023605733675@g.us\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/group/photo/remove",
+              "host": ["{{baseUrl}}"],
+              "path": ["group", "photo", "remove"]
+            },
+            "description": "Remove the current photo from a WhatsApp group"
+          },
+          "response": [ ]
+        },
         {
           "name": "List Groups",
           "request": {
@@ -814,7 +1024,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["group", "list"]
             },
-            "description": "Listar grupos"
+            "description": "List groups"
           },
           "response": []
         },
@@ -839,7 +1049,7 @@
                 }
               ]
             },
-            "description": "Informações do grupo"
+            "description": "Get group information"
           },
           "response": []
         },
@@ -868,7 +1078,7 @@
                 }
               ]
             },
-            "description": "Link de convite"
+            "description": "Get invite link"
           },
           "response": []
         },
@@ -888,14 +1098,14 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"GroupJID\": \"120362023605733675@g.us\",\n  \"Name\": \"Novo Nome\"\n}"
+              "raw": "{\n  \"GroupJID\": \"120362023605733675@g.us\",\n  \"Name\": \"New Name\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/group/name",
               "host": ["{{baseUrl}}"],
               "path": ["group", "name"]
             },
-            "description": "Alterar nome"
+            "description": "Change name"
           },
           "response": []
         },
@@ -915,16 +1125,121 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"GroupJID\": \"120362023605733675@g.us\",\n  \"Image\": \"data:image/jpeg;base64,/9j/\"\n}"
+              "raw": "{\n  \"GroupJID\": \"120362023605733675@g.us\",\n  \"Image\": \"data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD...\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/group/photo",
               "host": ["{{baseUrl}}"],
               "path": ["group", "photo"]
             },
-            "description": "Alterar foto"
+            "description": "Change photo"
           },
           "response": []
+        },
+        {
+          "name": "Set Group Topic",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "token", "value": "{{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"GroupJID\": \"120362023605733675@g.us\",\n  \"Topic\": \"New group topic here\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/group/topic",
+              "host": ["{{baseUrl}}"],
+              "path": ["group", "topic"]
+            },
+            "description": "Change the group topic/description"
+          },
+          "response": []
+        },
+        {
+          "name": "Set Group Announce",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "token", "value": "{{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"GroupJID\": \"120362023605733675@g.us\",\n  \"Announce\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/group/announce",
+              "host": ["{{baseUrl}}"],
+              "path": ["group", "announce"]
+            },
+            "description": "Set group to announcement-only (admins only can send messages)"
+          },
+          "response": []
+        },
+        {
+          "name": "Group Join",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "token", "value": "{{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"InviteCode\": \"AbCdEfGhIjKlMnOp\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/group/join",
+              "host": ["{{baseUrl}}"],
+              "path": ["group", "join"]
+            },
+            "description": "Join a group using an invite code"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Group Invite Info",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "token", "value": "{{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"InviteCode\": \"AbCdEfGhIjKlMnOp\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/group/inviteinfo",
+              "host": ["{{baseUrl}}"],
+              "path": ["group", "inviteinfo"]
+            },
+            "description": "Get info about a group invite code"
+          },
+          "response": [ ]
+        },
+        {
+          "name": "Update Group Participants",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "token", "value": "{{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"GroupJID\": \"120362023605733675@g.us\",\n  \"Action\": \"add\",\n  \"Phone\": [\"5491155553934@s.whatsapp.net\", \"5491155553935@s.whatsapp.net\"]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/group/updateparticipants",
+              "host": ["{{baseUrl}}"],
+              "path": ["group", "updateparticipants"]
+            },
+            "description": "Add, remove, promote or demote participants from a group. Action can be 'add', 'remove', 'promote','demote'."
+          },
+          "response": [ ]
         }
       ]
     },
@@ -946,7 +1261,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["newsletter", "list"]
             },
-            "description": "Listar newsletters"
+            "description": "List newsletters"
           },
           "response": []
         }
@@ -960,11 +1275,11 @@
     },
     {
       "key": "token",
-      "value": "seu_token_aqui"
+      "value": "your_token_here"
     },
     {
       "key": "admin_token",
-      "value": "admin_token_aqui"
+      "value": "admin_token_here"
     }
   ]
 }
